@@ -550,4 +550,9 @@ body:has(.public-landing) { background:#f5f1e9; }
 .access-request-person b { color:#32151f;font-size:13px; }
 .access-request-person small { overflow:hidden;color:#86756e;font-size:11px;text-overflow:ellipsis;white-space:nowrap; }
 .access-request-empty { display:flex;align-items:center;gap:8px;padding-top:12px;color:#59765f;font-size:12px; }
+.lead-account-summary { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 14px; }
+.lead-account-summary > div { display:grid;gap:5px;padding:12px 14px;border:1px solid #eee3d9;border-radius:11px;background:#fffdfb; }
+.lead-account-summary small { color:#86756e;font-size:10px; }
+.lead-account-summary b { color:#32151f;font-size:20px; }
 @media (max-width:620px) { .access-request-row { align-items:flex-start;flex-wrap:wrap; }.access-request-person { width:calc(100% - 54px);flex:none; }.access-request-row .lead-approval-actions { margin-left:48px; } }
+@media (max-width:620px) { .lead-account-summary { grid-template-columns:1fr; }.access-requests-panel .crm-panel-head { align-items:flex-start;flex-wrap:wrap; } }

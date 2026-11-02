@@ -168,6 +168,11 @@ def list_access_requests(db: Session = Depends(get_db), _admin: User = Depends(r
     return list(db.scalars(select(User).where(User.role == "lead", User.approval_status == "pending").order_by(User.created_at.asc())).all())
 
 
+@app.get("/api/admin/lead-accounts", response_model=list[UserOut])
+def list_lead_accounts(db: Session = Depends(get_db), _admin: User = Depends(require_admin)):
+    return list(db.scalars(select(User).where(User.role == "lead").order_by(User.created_at.desc())).all())
+
+
 @app.post("/api/admin/users/{user_id}/approval", response_model=UserOut)
 def decide_user_access(user_id: int, payload: UserApprovalRequest, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     user = db.get(User, user_id)
