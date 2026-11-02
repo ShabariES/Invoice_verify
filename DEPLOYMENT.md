@@ -125,9 +125,9 @@ The Jenkins controller must be publicly reachable for GitHub webhooks. If it is 
 ## 4. Verify the hosted setup
 
 1. Open `https://<api-service>.onrender.com/health` and confirm it returns `{"status":"ok"}`.
-2. Sign in with the bootstrap Admin account. In **Leads → Workspace access requests**, approve or reject a test Lead account.
-3. Create a Lead account. Confirm the account is pending and cannot sign in until the Admin approves it. After approval, confirm it can create and edit only its own leads.
-4. Confirm the Admin can review/reject lead submissions and open the invoice desk.
+2. Sign in with the bootstrap Admin account. In **Leads → Lead accounts**, approve or reject a test Lead account.
+3. Create a Lead account. Confirm the account is pending and cannot sign in until the Admin approves it. After approval, confirm it can create/edit only its own CRM leads and can upload, read, and edit invoice drafts.
+4. Confirm a Lead cannot perform final invoice approval, while an Admin can review/approve invoices and lead submissions.
 5. Upload a non-sensitive test invoice. Confirm it appears in the private bucket, can be opened through the authenticated API, and OCR returns text/confidence. Delete the test invoice and its object when finished.
 
 ## Current limitations

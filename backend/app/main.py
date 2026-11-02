@@ -109,6 +109,12 @@ def require_admin(user: User = Depends(require_user)) -> User:
     return user
 
 
+def require_invoice_access(user: User = Depends(require_user)) -> User:
+    if user.role not in {"admin", "lead"}:
+        raise HTTPException(403, "Approved workspace access is required")
+    return user
+
+
 def queue_notification(db: Session, background_tasks: BackgroundTasks, recipients: list[User], title: str, message: str, category: str, entity_type: str = "", entity_id: int | None = None):
     unique_users = {recipient.id: recipient for recipient in recipients}
     channels = channel_status()
@@ -343,7 +349,7 @@ def health():
 
 
 @app.get("/api/invoices", response_model=list[InvoiceOut])
-def list_invoices(db: Session = Depends(get_db), _admin: User = Depends(require_admin)):
+def list_invoices(db: Session = Depends(get_db), _user: User = Depends(require_invoice_access)):
     return list(db.scalars(select(Invoice).order_by(Invoice.created_at.desc())).all())
 
 
@@ -419,7 +425,7 @@ def decide_lead(lead_id: int, payload: LeadApprovalRequest, background_tasks: Ba
 
 
 @app.get("/api/invoices/{invoice_id}", response_model=InvoiceOut)
-def get_invoice(invoice_id: int, db: Session = Depends(get_db), _admin: User = Depends(require_admin)):
+def get_invoice(invoice_id: int, db: Session = Depends(get_db), _user: User = Depends(require_invoice_access)):
     invoice = db.get(Invoice, invoice_id)
     if not invoice:
         raise HTTPException(404, "Invoice not found")
@@ -427,14 +433,14 @@ def get_invoice(invoice_id: int, db: Session = Depends(get_db), _admin: User = D
 
 
 @app.get("/api/invoices/{invoice_id}/events", response_model=list[InvoiceEventOut])
-def invoice_events(invoice_id: int, db: Session = Depends(get_db), _admin: User = Depends(require_admin)):
+def invoice_events(invoice_id: int, db: Session = Depends(get_db), _user: User = Depends(require_invoice_access)):
     if not db.get(Invoice, invoice_id):
         raise HTTPException(404, "Invoice not found")
     return list(db.scalars(select(InvoiceEvent).where(InvoiceEvent.invoice_id == invoice_id).order_by(InvoiceEvent.created_at.desc())).all())
 
 
 @app.post("/api/invoices/{invoice_id}/extract")
-async def extract_invoice(invoice_id: int, db: Session = Depends(get_db), _admin: User = Depends(require_admin)):
+async def extract_invoice(invoice_id: int, db: Session = Depends(get_db), _user: User = Depends(require_invoice_access)):
     if not OCR_SERVICE_URL:
         raise HTTPException(503, "OCR service is not configured. Set OCR_SERVICE_URL to enable document reading.")
     invoice = db.get(Invoice, invoice_id)
@@ -496,7 +502,7 @@ async def extract_invoice(invoice_id: int, db: Session = Depends(get_db), _admin
 
 
 @app.post("/api/invoices/upload", response_model=InvoiceOut, status_code=201)
-async def upload_invoice(background_tasks: BackgroundTasks, file: UploadFile = File(...), db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+async def upload_invoice(background_tasks: BackgroundTasks, file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(require_invoice_access)):
     suffix = Path(file.filename or "invoice").suffix.lower()
     if suffix not in {".pdf", ".png", ".jpg", ".jpeg", ".webp"}:
         raise HTTPException(415, "Upload a PDF or image (PNG, JPG, WEBP)")
@@ -525,7 +531,7 @@ async def upload_invoice(background_tasks: BackgroundTasks, file: UploadFile = F
 
 
 @app.patch("/api/invoices/{invoice_id}", response_model=InvoiceOut)
-def update_invoice(invoice_id: int, payload: InvoiceUpdate, db: Session = Depends(get_db), _admin: User = Depends(require_admin)):
+def update_invoice(invoice_id: int, payload: InvoiceUpdate, db: Session = Depends(get_db), _user: User = Depends(require_invoice_access)):
     invoice = db.get(Invoice, invoice_id)
     if not invoice:
         raise HTTPException(404, "Invoice not found")
@@ -591,7 +597,7 @@ def approve_invoice(invoice_id: int, background_tasks: BackgroundTasks, db: Sess
 
 
 @app.get("/api/files/{invoice_id}")
-def invoice_file(invoice_id: int, db: Session = Depends(get_db), _admin: User = Depends(require_admin)):
+def invoice_file(invoice_id: int, db: Session = Depends(get_db), _user: User = Depends(require_invoice_access)):
     invoice = db.get(Invoice, invoice_id)
     if not invoice:
         raise HTTPException(404, "Invoice not found")
