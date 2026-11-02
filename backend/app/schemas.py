@@ -132,6 +132,13 @@ class UserOut(BaseModel):
     name: str
     email: str
     role: str
+    approval_status: str = "approved"
+    created_at: datetime | None = None
+
+
+class UserApprovalRequest(BaseModel):
+    action: Literal["approved", "rejected"]
+    reason: str = Field(default="", max_length=1000)
 
 
 class LeadApprovalRequest(BaseModel):

@@ -3,7 +3,7 @@ import { ArrowRight, Check, Eye, EyeOff, FileCheck2, LockKeyhole, Mail, ReceiptT
 import { API, apiFetch } from './api'
 
 type AuthMode = 'signup' | 'signin'
-export type AuthUser = { id: number; name: string; email: string; role: 'lead' | 'admin' }
+export type AuthUser = { id: number; name: string; email: string; role: 'lead' | 'admin'; approval_status?: 'pending' | 'approved' | 'rejected' }
 
 export default function AuthScreen({ onEnter, onBack, initialMode = 'signup' }: { onEnter: (user: AuthUser) => void; onBack?: () => void; initialMode?: AuthMode }) {
   const [mode, setMode] = useState<AuthMode>(initialMode)
@@ -15,7 +15,8 @@ export default function AuthScreen({ onEnter, onBack, initialMode = 'signup' }: 
     event.preventDefault()
     setNotice('')
     setBusy(true)
-    const form = new FormData(event.currentTarget)
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
     const body = mode === 'signup'
       ? { name: String(form.get('name') || ''), email: String(form.get('email') || ''), password: String(form.get('password') || '') }
       : { email: String(form.get('email') || ''), password: String(form.get('password') || '') }
@@ -23,6 +24,11 @@ export default function AuthScreen({ onEnter, onBack, initialMode = 'signup' }: 
       const response = await apiFetch(`${API}/api/auth/${mode === 'signup' ? 'register' : 'login'}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const data = await response.json()
       if (!response.ok) throw new Error(data.detail || 'Could not sign in.')
+      if (mode === 'signup' && data.approval_status === 'pending') {
+        setNotice('Your access request has been sent to an Admin. You can sign in after it is approved.')
+        formElement.reset()
+        return
+      }
       onEnter(data as AuthUser)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not connect to the account service.')
@@ -51,17 +57,17 @@ export default function AuthScreen({ onEnter, onBack, initialMode = 'signup' }: 
       <div className="auth-mobile-brand"><FileCheck2 size={19}/> TECHJAYS <span>INVOICE DESK</span></div>
       <div className="auth-card">
         {onBack && <button className="auth-back" type="button" onClick={onBack}>← Back to home</button>}
-        <div className="auth-heading"><span className="form-brand"><ReceiptText size={18}/> <b>TECHJAYS</b><i/> INVOICE DESK</span><span className="form-eyebrow">{mode === 'signup' ? 'A BETTER WAY TO REVIEW' : 'CONTINUE YOUR WORKFLOW'}</span><h2>{mode === 'signup' ? <>Create your<br/>invoice desk.</> : <>Welcome back.</>}</h2><p>{mode === 'signup' ? 'Keep supplier invoices and review decisions together.' : 'Sign in to continue your invoice review.'}</p></div>
+        <div className="auth-heading"><span className="form-brand"><ReceiptText size={18}/> <b>TECHJAYS</b><i/> INVOICE DESK</span><span className="form-eyebrow">{mode === 'signup' ? 'REQUEST WORKSPACE ACCESS' : 'CONTINUE YOUR WORKFLOW'}</span><h2>{mode === 'signup' ? <>Request access<br/>to your workspace.</> : <>Welcome back.</>}</h2><p>{mode === 'signup' ? 'An Admin will review your request before you can sign in.' : 'Sign in to continue your invoice review.'}</p></div>
         <form className="auth-form" onSubmit={submit}>
           {mode === 'signup' && <label>Your name<span className="auth-input"><UserRound size={17}/><input name="name" autoComplete="name" placeholder="e.g. Asha Mehta" minLength={1} maxLength={160} required/></span></label>}
           <label>Email address<span className="auth-input"><Mail size={17}/><input name="email" type="email" autoComplete="email" placeholder="you@company.com" required/></span></label>
           <label>Password<span className="auth-input"><LockKeyhole size={17}/><input name="password" type={showPassword ? 'text' : 'password'} autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} minLength={mode === 'signup' ? 10 : 1} placeholder={mode === 'signup' ? 'At least 10 characters' : 'Enter your password'} required/><button className="password-toggle" type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={17}/> : <Eye size={17}/>}</button></span></label>
           {mode === 'signin' && <div className="auth-options"><label className="remember"><input type="checkbox"/> Keep me signed in</label><span>Secure session</span></div>}
-          <button className="auth-submit" type="submit" disabled={busy}>{busy ? 'Please wait…' : mode === 'signup' ? 'Create lead account' : 'Sign in'}<ArrowRight size={17}/></button>
+          <button className="auth-submit" type="submit" disabled={busy}>{busy ? 'Please wait…' : mode === 'signup' ? 'Request access' : 'Sign in'}<ArrowRight size={17}/></button>
           {notice && <p className="auth-notice" role="status">{notice}</p>}
         </form>
         <div className="auth-switch">{mode === 'signup' ? 'Already have an account?' : 'New to Invoice Desk?'} <button onClick={() => { setMode(mode === 'signup' ? 'signin' : 'signup'); setNotice('') }}>{mode === 'signup' ? 'Sign in' : 'Create an account'}</button></div>
-        <div className="auth-local-note"><span/> ROLE-BASED ACCESS <i/> New registrations get the Lead role</div>
+        <div className="auth-local-note"><span/> ADMIN REVIEW <i/> New Lead accounts require approval</div>
       </div>
       <p className="auth-legal">By continuing, you agree to use this local invoice review workspace responsibly.</p>
     </section>

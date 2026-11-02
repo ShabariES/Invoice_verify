@@ -540,3 +540,14 @@ body:has(.public-landing) { background:#f5f1e9; }
 .lead-approval-state.approved { background:#edf7ee;color:#357247; }
 .lead-approval-state.rejected { background:#fbefec;color:#a64f3c; }
 .lead-rejection-reason { margin:0 0 15px;padding:11px 13px;border:1px solid #e5c6bf;border-radius:10px;background:#fff5f1;color:#8a473b;font-size:12px;line-height:1.5; }
+.access-requests-panel { margin:0 0 18px;padding:20px 22px; }
+.access-requests-panel .crm-panel-head { align-items:center;margin-bottom:13px; }
+.access-request-count { flex:none;padding:7px 10px;border:1px solid #ead9c9;border-radius:999px;background:#fff8f0;color:#704333;font-size:11px;font-weight:650; }
+.access-request-list { border-top:1px solid #eee3d9; }
+.access-request-row { display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid #f0e7df; }
+.access-request-icon { display:grid;place-items:center;width:36px;height:36px;flex:none;border:1px solid #eedac8;border-radius:11px;background:#fff7ef;color:#8c1236; }
+.access-request-person { display:grid;gap:4px;min-width:0;flex:1; }
+.access-request-person b { color:#32151f;font-size:13px; }
+.access-request-person small { overflow:hidden;color:#86756e;font-size:11px;text-overflow:ellipsis;white-space:nowrap; }
+.access-request-empty { display:flex;align-items:center;gap:8px;padding-top:12px;color:#59765f;font-size:12px; }
+@media (max-width:620px) { .access-request-row { align-items:flex-start;flex-wrap:wrap; }.access-request-person { width:calc(100% - 54px);flex:none; }.access-request-row .lead-approval-actions { margin-left:48px; } }

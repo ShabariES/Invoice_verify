@@ -1,6 +1,6 @@
 # GCP, Render, and Jenkins setup
 
-This repository supports private Google Cloud Storage for invoice files. When `GCS_BUCKET_NAME` is blank, local development continues to use `backend/uploads`. The deployment below uses a private GCS bucket, Render PostgreSQL, an API service, a separate OCR service, and a static frontend.
+This repository stores application records in PostgreSQL (use Neon for hosting) and invoice files in private Google Cloud Storage. When `GCS_BUCKET_NAME` is blank, local development continues to use `backend/uploads`. The deployment below uses Neon, a private GCS bucket, Render API/OCR services, and a static frontend.
 
 ## 1. Create a private GCP bucket
 
@@ -14,12 +14,14 @@ The backend stores invoice objects under `invoices/` and serves them through aut
 
 ## 2. Create the Render services
 
-Connect the GitHub repository to Render, then create a Render PostgreSQL database and three services in the same region: the API, a private OCR web service, and a static site. The API and OCR service need a paid always-on plan for dependable use; Paddle model initialization is CPU and memory intensive. Check current Render plans and pricing before creating services.
+Connect the GitHub repository to Render and create the API, private OCR web service, and static site. Keep the Neon project and Render services in nearby regions to reduce database latency. The API and OCR service need a paid always-on plan for dependable use; Paddle model initialization is CPU and memory intensive. Check current Render plans and pricing before creating services.
 
-### PostgreSQL
+### Neon PostgreSQL
 
-1. Create a PostgreSQL database in Render.
-2. Copy its **Internal Database URL** into the API service as `DATABASE_URL`. Keep the database and API in the same Render region.
+1. In the [Neon Console](https://console.neon.tech/), create a project, choose a region close to your Render services, and create/select the application database and role.
+2. Open the project’s **Connect** panel. Select the application database and role; copy the connection string. Use the pooled connection option for the Render API, and keep the URL private. Neon’s project setup provides a PostgreSQL connection URI containing the database and role credentials. See [Neon project creation](https://neon.tech/docs/manage/projects) and [Neon connection strings](https://neon.tech/docs/connect/connect-from-any-app).
+3. In Render, set the API service `DATABASE_URL` to that Neon URL. Retain `sslmode=require` in the query parameters. The application uses PostgreSQL through psycopg; `DATABASE_URL` must be set in production. SQLite remains a local-development default only.
+4. Neon stores users, leads, invoices, line items, approvals, and invoice content hashes/metadata. The original invoice files remain in the private GCS bucket.
 
 ### API web service
 
@@ -35,7 +37,7 @@ Set these environment variables on the API service:
 | Variable | Value |
 | --- | --- |
 | `APP_ENV` | `production` |
-| `DATABASE_URL` | Render PostgreSQL internal URL |
+| `DATABASE_URL` | Neon PostgreSQL pooled connection URL with TLS |
 | `FRONTEND_ORIGIN` | Exact static-site origin, e.g. `https://invoice-verify-ui.onrender.com` |
 | `SESSION_SECRET_KEY` | A newly generated random secret, at least 32 bytes |
 | `BOOTSTRAP_ADMIN_EMAIL` | Email for the first Admin account |
@@ -100,12 +102,13 @@ The Jenkins controller must be publicly reachable for GitHub webhooks. If it is 
 ## 4. Verify the hosted setup
 
 1. Open `https://<api-service>.onrender.com/health` and confirm it returns `{"status":"ok"}`.
-2. Open the frontend, create a Lead account, and confirm it can create and edit only its own leads.
-3. Sign in with the bootstrap Admin account. Confirm it can see and approve/reject submissions and open the invoice desk.
-4. Upload a non-sensitive test invoice. Confirm it appears in the private bucket, can be opened through the authenticated API, and OCR returns text/confidence. Delete the test invoice and its object when finished.
+2. Sign in with the bootstrap Admin account. In **Leads → Workspace access requests**, approve or reject a test Lead account.
+3. Create a Lead account. Confirm the account is pending and cannot sign in until the Admin approves it. After approval, confirm it can create and edit only its own leads.
+4. Confirm the Admin can review/reject lead submissions and open the invoice desk.
+5. Upload a non-sensitive test invoice. Confirm it appears in the private bucket, can be opened through the authenticated API, and OCR returns text/confidence. Delete the test invoice and its object when finished.
 
 ## Current limitations
 
-This adds basic Lead/Admin authorization, but does not yet include email verification, password reset, MFA, rate limiting, an admin user-management screen, or tenant/workspace isolation. The initial Admin password is bootstrapped once; changing Render’s bootstrap environment variables does not reset an existing user. Do not use this pilot with customer financial records until these controls, retention, backups, migrations, and recovery have been reviewed.
+This adds basic Lead/Admin authorization and manual Lead-account access approval, but does not yet include email verification, password reset, MFA, rate limiting, user deactivation tooling, or tenant/workspace isolation. The initial Admin password is bootstrapped once; changing Render’s bootstrap environment variables does not reset an existing user. Do not use this pilot with customer financial records until these controls, retention, backups, migrations, and recovery have been reviewed.
 
 Local SQLite records and files are not copied to Render by deployment. Start with a clean hosted database/bucket or arrange a reviewed migration separately.

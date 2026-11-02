@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { ArrowRight, ArrowUpRight, BriefcaseBusiness, CalendarClock, Check, ChevronRight, CircleDollarSign, Filter, Plus, Search, Sparkles, Target, UsersRound, X } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, BriefcaseBusiness, CalendarClock, Check, ChevronRight, CircleDollarSign, Filter, Plus, Search, ShieldCheck, Sparkles, Target, UsersRound, X } from 'lucide-react'
 import { API, apiFetch } from './api'
 
 export type Lead = {
@@ -69,6 +69,7 @@ export function CrmHome({ leads, invoiceCount, canViewAccounting, onOpenLeads, o
 }
 
 export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialFilter = 'all', isAdmin = false }: { leads: Lead[]; onLeadsChange: (leads: Lead[]) => void; createRequest: number; query: string; initialFilter?: string; isAdmin?: boolean }) {
+  const [accessRequests, setAccessRequests] = useState<Array<{ id: number; name: string; email: string; created_at?: string; approval_status: string }>>([])
   const [modal, setModal] = useState(false)
   const [editing, setEditing] = useState<Lead | null>(null)
   const [statusFilter, setStatusFilter] = useState('all')
@@ -78,6 +79,13 @@ export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialF
   const [error, setError] = useState('')
   const [approvalMessage, setApprovalMessage] = useState('')
   const [approvalBusy, setApprovalBusy] = useState<number | null>(null)
+  useEffect(() => {
+    if (!isAdmin) return
+    void apiFetch(`${API}/api/admin/access-requests`).then(async response => {
+      if (!response.ok) throw new Error('Could not load account requests')
+      setAccessRequests(await response.json())
+    }).catch(() => setApprovalMessage('Could not load pending account access requests.'))
+  }, [isAdmin])
   const [form, setForm] = useState({ company_name: '', contact_name: '', email: '', phone: '', source: 'Website', industry: '', estimated_value: '', status: 'new', next_follow_up: '', notes: '' })
   useEffect(() => { if (createRequest) { setEditing(null); setForm(emptyForm()); setError(''); setModal(true) } }, [createRequest])
   useEffect(() => {
@@ -118,11 +126,25 @@ export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialF
     } catch (cause) { setApprovalMessage(cause instanceof Error ? cause.message : 'Could not connect to the CRM API.') }
     finally { setApprovalBusy(null) }
   }
+  async function decideAccess(userId: number, action: 'approved' | 'rejected') {
+    const reason = action === 'rejected' ? window.prompt('Reason for rejecting this access request (optional):') : ''
+    if (reason === null) return
+    setApprovalBusy(userId); setApprovalMessage('')
+    try {
+      const response = await apiFetch(`${API}/api/admin/users/${userId}/approval`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, reason }) })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.detail || 'Could not review this access request.')
+      setAccessRequests(items => items.filter(item => item.id !== userId))
+      setApprovalMessage(action === 'approved' ? `${data.name} can now sign in.` : `${data.name}'s access request was rejected.`)
+    } catch (cause) { setApprovalMessage(cause instanceof Error ? cause.message : 'Could not connect to the account service.') }
+    finally { setApprovalBusy(null) }
+  }
   const activeCount = leads.filter(lead => !['won', 'lost'].includes(lead.status)).length
 
   return <div className="crm-page leads-page">
     <section className="crm-page-heading"><div><span className="crm-eyebrow">{isAdmin ? 'ADMIN · CUSTOMER RELATIONSHIPS' : 'CUSTOMER RELATIONSHIPS'}</span><h1>{isAdmin ? 'Lead approvals' : 'Leads'}</h1><p>{isAdmin ? 'Review new submissions, approve qualified records, and manage the full lead pipeline.' : 'Capture prospects, understand their needs, and keep the next conversation on track.'}</p></div><button className="crm-primary" onClick={openNew}><Plus size={16}/> Add lead</button></section>
     {approvalMessage && <p className="lead-approval-notice" role="status">{approvalMessage}</p>}
+    {isAdmin && <section className="crm-panel access-requests-panel"><div className="crm-panel-head"><div><span className="crm-eyebrow">ACCOUNT SECURITY</span><h2>Workspace access requests</h2><p>New Lead accounts can sign in only after you approve them.</p></div><span className="access-request-count">{accessRequests.length} pending</span></div>{accessRequests.length ? <div className="access-request-list">{accessRequests.map(account => <article className="access-request-row" key={account.id}><span className="access-request-icon"><ShieldCheck size={17}/></span><span className="access-request-person"><b>{account.name}</b><small>{account.email}{account.created_at ? ` · Requested ${new Date(account.created_at).toLocaleDateString()}` : ''}</small></span><span className="lead-approval-actions"><button type="button" disabled={approvalBusy === account.id} onClick={() => void decideAccess(account.id, 'approved')}><Check size={13}/> Approve access</button><button type="button" disabled={approvalBusy === account.id} onClick={() => void decideAccess(account.id, 'rejected')}>Reject</button></span></article>)}</div> : <div className="access-request-empty"><Check size={15}/> No pending account requests</div>}</section>}
     {isAdmin && <button type="button" className={`admin-approval-summary ${approvalOnly ? 'selected' : ''}`} aria-pressed={approvalOnly} onClick={() => { setStatusFilter('all'); setSummaryFilter('all'); setApprovalOnly(!approvalOnly) }}><small>Awaiting admin review</small><b>{leads.filter(lead => lead.approval_status === 'pending').length}</b><span>{approvalOnly ? 'Showing leads awaiting approval.' : 'Click to review new lead submissions.'}</span></button>}
     <div className="lead-summary" aria-label="Lead summaries">
       <button type="button" className={summaryFilter === 'all' ? 'selected' : ''} aria-pressed={summaryFilter === 'all'} onClick={() => chooseSummary('all')}><small>Total leads</small><b>{leads.length}</b><span>Show every lead <ArrowRight size={12}/></span></button>

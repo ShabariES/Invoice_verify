@@ -20,7 +20,7 @@ from app.config import APP_ENV, BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD,
 from app.chat_knowledge import CHAT_SYSTEM_PROMPT
 from app.database import Base, SessionLocal, engine, get_db
 from app.models import Invoice, InvoiceEvent, InvoiceLine, Lead, User
-from app.schemas import ChatRequest, InvoiceEventOut, InvoiceOut, InvoiceUpdate, LeadApprovalRequest, LeadCreate, LeadOut, LeadUpdate, LoginRequest, RegisterRequest, UserOut
+from app.schemas import ChatRequest, InvoiceEventOut, InvoiceOut, InvoiceUpdate, LeadApprovalRequest, LeadCreate, LeadOut, LeadUpdate, LoginRequest, RegisterRequest, UserApprovalRequest, UserOut
 from app.security import hash_password, verify_password
 from app.storage import load_invoice_source, save_invoice_source
 
@@ -50,6 +50,16 @@ with engine.begin() as connection:
     }.items():
         if name not in lead_columns:
             connection.execute(text(f"ALTER TABLE leads ADD COLUMN {name} {ddl}"))
+user_columns = {column["name"] for column in inspect(engine).get_columns("users")}
+with engine.begin() as connection:
+    for name, ddl in {
+        "approval_status": "VARCHAR(24) NOT NULL DEFAULT 'approved'",
+        "approval_reviewed_by": "VARCHAR(254) NOT NULL DEFAULT ''",
+        "approval_reviewed_at": timestamp_type,
+        "approval_rejection_reason": "TEXT NOT NULL DEFAULT ''",
+    }.items():
+        if name not in user_columns:
+            connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {ddl}"))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 app = FastAPI(title="Local Invoice Desk", version="0.1.0")
 app.add_middleware(
@@ -78,6 +88,9 @@ def require_user(request: Request, db: Session = Depends(get_db)) -> User:
     if not user or not user.is_active:
         request.session.clear()
         raise HTTPException(401, "Sign in to continue")
+    if user.approval_status != "approved":
+        request.session.clear()
+        raise HTTPException(403, "Your account is awaiting administrator approval" if user.approval_status == "pending" else "Your account access was not approved")
     return user
 
 
@@ -88,16 +101,22 @@ def require_admin(user: User = Depends(require_user)) -> User:
 
 
 def public_user(user: User) -> UserOut:
-    return UserOut(id=user.id, name=user.name, email=user.email, role=user.role)
+    return UserOut(id=user.id, name=user.name, email=user.email, role=user.role, approval_status=user.approval_status, created_at=user.created_at)
 
 
 if BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD:
     if len(BOOTSTRAP_ADMIN_PASSWORD) < 12:
         raise RuntimeError("BOOTSTRAP_ADMIN_PASSWORD must be at least 12 characters")
     with SessionLocal() as db:
-        if not db.scalar(select(User).where(User.email == BOOTSTRAP_ADMIN_EMAIL)):
-            db.add(User(name="Administrator", email=BOOTSTRAP_ADMIN_EMAIL, password_hash=hash_password(BOOTSTRAP_ADMIN_PASSWORD), role="admin"))
-            db.commit()
+        admin = db.scalar(select(User).where(User.email == BOOTSTRAP_ADMIN_EMAIL))
+        if not admin:
+            db.add(User(name="Administrator", email=BOOTSTRAP_ADMIN_EMAIL, password_hash=hash_password(BOOTSTRAP_ADMIN_PASSWORD), role="admin", approval_status="approved"))
+        else:
+            admin.role = "admin"
+            admin.is_active = True
+            admin.approval_status = "approved"
+            admin.approval_rejection_reason = ""
+        db.commit()
 elif APP_ENV == "production":
     raise RuntimeError("Set BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD before starting in production")
 
@@ -109,7 +128,7 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
         raise HTTPException(422, "Enter a valid email address")
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(409, "An account with this email already exists")
-    user = User(name=payload.name.strip(), email=email, password_hash=hash_password(payload.password), role="lead")
+    user = User(name=payload.name.strip(), email=email, password_hash=hash_password(payload.password), role="lead", approval_status="pending")
     db.add(user)
     try:
         db.commit()
@@ -117,7 +136,6 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
         db.rollback()
         raise HTTPException(409, "An account with this email already exists") from exc
     db.refresh(user)
-    request.session["user_id"] = user.id
     return public_user(user)
 
 
@@ -126,6 +144,10 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
     user = db.scalar(select(User).where(User.email == payload.email.strip().lower()))
     if not user or not user.is_active or not verify_password(payload.password, user.password_hash):
         raise HTTPException(401, "Email or password is incorrect")
+    if user.approval_status != "approved":
+        if user.approval_status == "pending":
+            raise HTTPException(403, "Your account is pending administrator approval. You can sign in after an Admin approves your access.")
+        raise HTTPException(403, f"Your account access was not approved.{(' ' + user.approval_rejection_reason) if user.approval_rejection_reason else ''}")
     request.session.clear()
     request.session["user_id"] = user.id
     return public_user(user)
@@ -138,6 +160,28 @@ def logout(request: Request):
 
 @app.get("/api/auth/me", response_model=UserOut)
 def who_am_i(user: User = Depends(require_user)):
+    return public_user(user)
+
+
+@app.get("/api/admin/access-requests", response_model=list[UserOut])
+def list_access_requests(db: Session = Depends(get_db), _admin: User = Depends(require_admin)):
+    return list(db.scalars(select(User).where(User.role == "lead", User.approval_status == "pending").order_by(User.created_at.asc())).all())
+
+
+@app.post("/api/admin/users/{user_id}/approval", response_model=UserOut)
+def decide_user_access(user_id: int, payload: UserApprovalRequest, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    user = db.get(User, user_id)
+    if not user or user.role != "lead":
+        raise HTTPException(404, "Pending Lead account not found")
+    if user.approval_status != "pending":
+        raise HTTPException(409, "This account request has already been reviewed")
+    user.approval_status = payload.action
+    user.approval_reviewed_by = admin.email
+    user.approval_reviewed_at = datetime.now(timezone.utc)
+    user.approval_rejection_reason = payload.reason.strip() if payload.action == "rejected" else ""
+    user.is_active = payload.action == "approved"
+    db.commit()
+    db.refresh(user)
     return public_user(user)
 
 

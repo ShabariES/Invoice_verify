@@ -33,11 +33,11 @@ Open the URL Vite prints (usually `http://localhost:5173`). API docs: `http://lo
 
 ### Accounts and roles
 
-Sign-up creates a **Lead** account. A Lead user can create and update only their own leads. New leads wait for review. An **Admin** can view and edit all leads, approve or reject lead submissions, and use the invoice desk. Invoice APIs enforce the Admin role on the server.
+Sign-up submits a **Lead** account access request. The account remains pending and cannot sign in until an **Admin** approves it. Admins review requests under **Leads → Workspace access requests**; rejected accounts remain blocked. After approval, a Lead can create and update only their own leads. New lead records wait for Admin review. An **Admin** can view and edit all leads, approve or reject lead submissions, and use the invoice desk. Invoice APIs enforce the Admin role on the server.
 
 Create the first Admin by setting `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` in `backend/.env` before starting the API. Use a password with at least 12 characters. The bootstrap runs once; changing those environment values later does not reset the existing account password. Set a persistent random `SESSION_SECRET_KEY` as well. In production set `APP_ENV=production`; the API refuses to start without these production values.
 
-Sessions use signed, HTTP-only cookies. The browser calls the API with credentials enabled, so set `FRONTEND_ORIGIN` to the exact frontend origin in a hosted environment. Public sign-up cannot select the Admin role.
+Sessions use signed, HTTP-only cookies. The browser calls the API with credentials enabled, so set `FRONTEND_ORIGIN` to the exact frontend origin in a hosted environment. Public sign-up cannot select the Admin role. In production, store records in Neon by setting `DATABASE_URL` to the Neon PostgreSQL connection string; SQLite is only the local fallback. See [DEPLOYMENT.md](DEPLOYMENT.md) for Neon, GCS, Render, and Jenkins setup.
 
 ### Enable invoice OCR without containers
 

@@ -87,4 +87,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(512))
     role: Mapped[str] = mapped_column(String(24), default="lead", server_default="lead")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    approval_status: Mapped[str] = mapped_column(String(24), default="approved", server_default="approved", index=True)
+    approval_reviewed_by: Mapped[str] = mapped_column(String(254), default="", server_default="")
+    approval_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    approval_rejection_reason: Mapped[str] = mapped_column(Text, default="", server_default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
