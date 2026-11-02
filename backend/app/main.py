@@ -575,6 +575,7 @@ def claim_inbound_receipt(db: Session, provider: str, external_id: str, owner_us
             return receipt, False
         receipt.owner_user_id = owner_user_id
         receipt.status = "processing"
+        receipt.created_at = datetime.now(timezone.utc)
         db.commit()
         return receipt, True
     receipt = InboundReceipt(provider=provider, external_id=external_id[:255], owner_user_id=owner_user_id)
@@ -586,9 +587,13 @@ def claim_inbound_receipt(db: Session, provider: str, external_id: str, owner_us
         receipt = db.scalar(select(InboundReceipt).where(InboundReceipt.provider == provider, InboundReceipt.external_id == external_id[:255]))
         if receipt and receipt.status in {"complete", "ignored"}:
             return receipt, False
+        if receipt and receipt.status == "processing" and (datetime.now(timezone.utc) - receipt.created_at.replace(tzinfo=timezone.utc)).total_seconds() < 600:
+            return receipt, False
         if not receipt:
             raise
         receipt.status = "processing"
+        receipt.owner_user_id = owner_user_id
+        receipt.created_at = datetime.now(timezone.utc)
         db.commit()
     db.refresh(receipt)
     return receipt, True
