@@ -73,6 +73,7 @@ class LeadCreate(BaseModel):
     contact_name: str = Field(default="", max_length=160)
     email: str = Field(default="", max_length=254)
     phone: str = Field(default="", max_length=40)
+    whatsapp_opt_in: bool = False
     source: str = Field(default="Website", max_length=80)
     industry: str = Field(default="", max_length=120)
     estimated_value: Decimal = Field(default=Decimal("0"), ge=0)
@@ -86,12 +87,18 @@ class LeadUpdate(BaseModel):
     contact_name: str | None = Field(default=None, max_length=160)
     email: str | None = Field(default=None, max_length=254)
     phone: str | None = Field(default=None, max_length=40)
+    whatsapp_opt_in: bool | None = None
     source: str | None = Field(default=None, max_length=80)
     industry: str | None = Field(default=None, max_length=120)
     estimated_value: Decimal | None = Field(default=None, ge=0)
     status: Literal["new", "contacted", "qualified", "proposal", "won", "lost"] | None = None
     next_follow_up: date | None = None
     notes: str | None = Field(default=None, max_length=4000)
+
+
+class LeadMessageRequest(BaseModel):
+    channel: Literal["email", "whatsapp"]
+    message: str = Field(min_length=1, max_length=700)
 
 
 class LeadOut(BaseModel):
@@ -101,6 +108,7 @@ class LeadOut(BaseModel):
     contact_name: str
     email: str
     phone: str
+    whatsapp_opt_in: bool = False
     source: str
     industry: str
     estimated_value: Decimal

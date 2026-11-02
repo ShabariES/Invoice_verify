@@ -81,6 +81,7 @@ class Lead(Base):
     contact_name: Mapped[str] = mapped_column(String(160), default="")
     email: Mapped[str] = mapped_column(String(254), default="")
     phone: Mapped[str] = mapped_column(String(40), default="")
+    whatsapp_opt_in: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     source: Mapped[str] = mapped_column(String(80), default="Website")
     industry: Mapped[str] = mapped_column(String(120), default="")
     estimated_value: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)

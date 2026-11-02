@@ -41,9 +41,9 @@ def channel_status() -> dict[str, bool | str]:
     }
 
 
-def send_email_notification(recipient: str, subject: str, message: str) -> None:
+def send_email_notification(recipient: str, subject: str, message: str) -> bool:
     if not SMTP_HOST or not SMTP_FROM_EMAIL or not recipient:
-        return
+        return False
     email = EmailMessage()
     email["Subject"] = subject[:180]
     email["From"] = SMTP_FROM_EMAIL
@@ -64,16 +64,18 @@ def send_email_notification(recipient: str, subject: str, message: str) -> None:
                 if SMTP_USERNAME:
                     client.login(SMTP_USERNAME, SMTP_PASSWORD)
                 client.send_message(email)
+        return True
     except (OSError, smtplib.SMTPException) as exc:
         logger.warning("Email notification delivery failed (%s)", type(exc).__name__)
+        return False
 
 
-def send_whatsapp_notification(recipient: str, title: str, message: str) -> None:
+def send_whatsapp_notification(recipient: str, title: str, message: str) -> bool:
     if not WHATSAPP_ACCESS_TOKEN or not WHATSAPP_PHONE_NUMBER_ID or not recipient:
-        return
+        return False
     recipient = re.sub(r"\D", "", recipient)
     if not recipient:
-        return
+        return False
     payload = {
         "messaging_product": "whatsapp",
         "to": recipient,
@@ -93,5 +95,7 @@ def send_whatsapp_notification(recipient: str, title: str, message: str) -> None
     try:
         with urllib.request.urlopen(request, timeout=8) as response:
             response.read(1024)
+        return True
     except (OSError, urllib.error.URLError) as exc:
         logger.warning("WhatsApp notification delivery failed (%s)", type(exc).__name__)
+        return False

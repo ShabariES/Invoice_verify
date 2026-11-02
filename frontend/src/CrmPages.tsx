@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { ArrowRight, ArrowUpRight, BriefcaseBusiness, CalendarClock, Check, ChevronRight, CircleDollarSign, Filter, Plus, Search, ShieldCheck, Sparkles, Target, UsersRound, X } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, BriefcaseBusiness, CalendarClock, Check, ChevronRight, CircleDollarSign, Filter, Plus, Search, Send, ShieldCheck, Sparkles, Target, UsersRound, X } from 'lucide-react'
 import { API, apiFetch } from './api'
 
 export type Lead = {
@@ -8,6 +8,7 @@ export type Lead = {
   contact_name: string
   email: string
   phone: string
+  whatsapp_opt_in: boolean
   source: string
   industry: string
   estimated_value: number | string
@@ -79,6 +80,12 @@ export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialF
   const [error, setError] = useState('')
   const [approvalMessage, setApprovalMessage] = useState('')
   const [approvalBusy, setApprovalBusy] = useState<number | null>(null)
+  const [messageOpen, setMessageOpen] = useState(false)
+  const [messageLeadId, setMessageLeadId] = useState<number | null>(null)
+  const [messageChannel, setMessageChannel] = useState<'email' | 'whatsapp'>('email')
+  const [messageText, setMessageText] = useState('')
+  const [messageSending, setMessageSending] = useState(false)
+  const [messageResult, setMessageResult] = useState('')
   useEffect(() => {
     if (!isAdmin) return
     void apiFetch(`${API}/api/admin/lead-accounts`).then(async response => {
@@ -86,7 +93,7 @@ export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialF
       setLeadAccounts(await response.json())
     }).catch(() => setApprovalMessage('Could not load pending account access requests.'))
   }, [isAdmin])
-  const [form, setForm] = useState({ company_name: '', contact_name: '', email: '', phone: '', source: 'Website', industry: '', estimated_value: '', status: 'new', next_follow_up: '', notes: '' })
+  const [form, setForm] = useState({ company_name: '', contact_name: '', email: '', phone: '', whatsapp_opt_in: false, source: 'Website', industry: '', estimated_value: '', status: 'new', next_follow_up: '', notes: '' })
   useEffect(() => { if (createRequest) { setEditing(null); setForm(emptyForm()); setError(''); setModal(true) } }, [createRequest])
   useEffect(() => {
     setApprovalOnly(false)
@@ -105,6 +112,7 @@ export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialF
     event.preventDefault(); setSaving(true); setError('')
     const payload = { ...form, estimated_value: Number(form.estimated_value || 0), next_follow_up: form.next_follow_up || null }
     try {
+      if (payload.whatsapp_opt_in && !payload.phone.trim()) throw new Error('Add the contact WhatsApp number before recording consent.')
       const response = await apiFetch(editing ? `${API}/api/leads/${editing.id}` : `${API}/api/leads`, { method: editing ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       const data = await response.json()
       if (!response.ok) throw new Error(data.detail || 'Could not save this lead.')
@@ -112,6 +120,20 @@ export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialF
       setModal(false)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not connect to the local CRM API.') }
     finally { setSaving(false) }
+  }
+  const openMessage = (lead?: Lead) => { setMessageLeadId(lead?.id ?? leads.find(item => item.approval_status === 'approved')?.id ?? null); setMessageChannel('email'); setMessageText(''); setMessageResult(''); setMessageOpen(true) }
+  async function sendLeadMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!messageLeadId) return
+    setMessageSending(true); setMessageResult('')
+    try {
+      const response = await apiFetch(`${API}/api/leads/${messageLeadId}/message`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: messageChannel, message: messageText }) })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.detail || 'Could not send this message.')
+      setMessageResult(data.message || 'The provider accepted the message for delivery.')
+      setMessageText('')
+    } catch (cause) { setMessageResult(cause instanceof Error ? cause.message : 'Could not connect to the messaging service.') }
+    finally { setMessageSending(false) }
   }
   async function decideLead(lead: Lead, action: 'approved' | 'rejected') {
     const reason = action === 'rejected' ? window.prompt('Reason for rejecting this lead (optional):') : ''
@@ -142,7 +164,7 @@ export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialF
   const activeCount = leads.filter(lead => !['won', 'lost'].includes(lead.status)).length
 
   return <div className="crm-page leads-page">
-    <section className="crm-page-heading"><div><span className="crm-eyebrow">{isAdmin ? 'ADMIN · CUSTOMER RELATIONSHIPS' : 'CUSTOMER RELATIONSHIPS'}</span><h1>{isAdmin ? 'Lead approvals' : 'Leads'}</h1><p>{isAdmin ? 'Review new submissions, approve qualified records, and manage the full lead pipeline.' : 'Capture prospects, understand their needs, and keep the next conversation on track.'}</p></div><button className="crm-primary" onClick={openNew}><Plus size={16}/> Add lead</button></section>
+    <section className="crm-page-heading"><div><span className="crm-eyebrow">{isAdmin ? 'ADMIN · CUSTOMER RELATIONSHIPS' : 'CUSTOMER RELATIONSHIPS'}</span><h1>{isAdmin ? 'Lead approvals' : 'Leads'}</h1><p>{isAdmin ? 'Review new submissions, approve qualified records, and manage the full lead pipeline.' : 'Capture prospects, understand their needs, and keep the next conversation on track.'}</p></div><div className="crm-heading-actions"><button className="crm-secondary" onClick={() => openMessage()}><Send size={15}/> Send message</button><button className="crm-primary" onClick={openNew}><Plus size={16}/> Add lead</button></div></section>
     {approvalMessage && <p className="lead-approval-notice" role="status">{approvalMessage}</p>}
     {isAdmin && <section className="crm-panel access-requests-panel"><div className="crm-panel-head"><div><span className="crm-eyebrow">ACCOUNT SECURITY</span><h2>Lead accounts</h2><p>Approved signups remain listed here; pending accounts cannot sign in.</p></div><span className="access-request-count">{leadAccounts.length} total accounts</span></div><div className="lead-account-summary"><div><small>Total lead accounts</small><b>{leadAccounts.length}</b></div><div><small>Pending approval</small><b>{leadAccounts.filter(account => account.approval_status === 'pending').length}</b></div><div><small>Approved</small><b>{leadAccounts.filter(account => account.approval_status === 'approved').length}</b></div></div>{leadAccounts.length ? <div className="access-request-list">{leadAccounts.map(account => <article className="access-request-row" key={account.id}><span className="access-request-icon"><ShieldCheck size={17}/></span><span className="access-request-person"><b>{account.name}</b><small>{account.email}{account.created_at ? ` · Joined ${new Date(account.created_at).toLocaleDateString()}` : ''}</small></span>{account.approval_status === 'pending' ? <span className="lead-approval-actions"><button type="button" disabled={approvalBusy === account.id} onClick={() => void decideAccess(account.id, 'approved')}><Check size={13}/> Approve access</button><button type="button" disabled={approvalBusy === account.id} onClick={() => void decideAccess(account.id, 'rejected')}>Reject</button></span> : <span className={`lead-approval-state ${account.approval_status}`}>{account.approval_status}</span>}</article>)}</div> : <div className="access-request-empty"><Check size={15}/> No Lead accounts yet</div>}</section>}
     {isAdmin && <button type="button" className={`admin-approval-summary ${approvalOnly ? 'selected' : ''}`} aria-pressed={approvalOnly} onClick={() => { setStatusFilter('all'); setSummaryFilter('all'); setApprovalOnly(!approvalOnly) }}><small>Awaiting admin review</small><b>{leads.filter(lead => lead.approval_status === 'pending').length}</b><span>{approvalOnly ? 'Showing leads awaiting approval.' : 'Click to review new lead submissions.'}</span></button>}
@@ -157,11 +179,12 @@ export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialF
     </section>
     {modal && <div className="crm-modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setModal(false) }}><section className="crm-modal" role="dialog" aria-modal="true" aria-labelledby="lead-form-title"><div className="crm-modal-head"><div><span className="crm-eyebrow">LEAD DETAILS</span><h2 id="lead-form-title">{editing ? 'Update lead' : 'Add a lead'}</h2><p>Keep the relationship record and next step in one place.</p></div><button className="crm-icon-button" onClick={() => setModal(false)} aria-label="Close lead form"><X size={17}/></button></div>
       {editing?.approval_status === 'rejected' && <p className="lead-rejection-reason">Admin feedback: {editing.rejection_reason || 'Please review the lead details and resubmit.'} Saving your changes will send it for approval again.</p>}
-      <form className="lead-form" onSubmit={submit}><label>Company name<input required maxLength={240} value={form.company_name} onChange={event => setField('company_name', event.target.value)} placeholder="e.g. Acme Industries" autoFocus/></label><label>Contact person<input maxLength={160} value={form.contact_name} onChange={event => setField('contact_name', event.target.value)} placeholder="Full name"/></label><label>Email address<input type="email" maxLength={254} value={form.email} onChange={event => setField('email', event.target.value)} placeholder="name@company.com"/></label><label>Phone number<input type="tel" maxLength={40} value={form.phone} onChange={event => setField('phone', event.target.value)} placeholder="+91 98765 43210"/></label><label>Lead source<select value={form.source} onChange={event => setField('source', event.target.value)}>{['Website', 'Referral', 'Social media', 'Event', 'Partner', 'Outbound', 'Other'].map(source => <option key={source}>{source}</option>)}</select></label><label>Industry<input maxLength={120} value={form.industry} onChange={event => setField('industry', event.target.value)} placeholder="e.g. Manufacturing"/></label><label>Estimated opportunity (₹)<input type="number" min="0" step="1000" value={form.estimated_value} onChange={event => setField('estimated_value', event.target.value)} placeholder="0"/></label><label>Next follow-up<input type="date" value={form.next_follow_up} onChange={event => setField('next_follow_up', event.target.value)}/></label><label>Pipeline stage<select value={form.status} onChange={event => setField('status', event.target.value)}>{stages.map(stage => <option key={stage.id} value={stage.id}>{stage.label}</option>)}</select></label><label className="lead-form-wide">Notes<textarea rows={3} maxLength={4000} value={form.notes} onChange={event => setField('notes', event.target.value)} placeholder="What does this business need? Add useful context for the next conversation."/></label>
+      <form className="lead-form" onSubmit={submit}><label>Company name<input required maxLength={240} value={form.company_name} onChange={event => setField('company_name', event.target.value)} placeholder="e.g. Acme Industries" autoFocus/></label><label>Contact person<input maxLength={160} value={form.contact_name} onChange={event => setField('contact_name', event.target.value)} placeholder="Full name"/></label><label>Email address<input type="email" maxLength={254} value={form.email} onChange={event => setField('email', event.target.value)} placeholder="name@company.com"/></label><label>Phone number<input type="tel" maxLength={40} value={form.phone} onChange={event => setForm(current => ({ ...current, phone: event.target.value, whatsapp_opt_in: event.target.value === current.phone ? current.whatsapp_opt_in : false }))} placeholder="+91 98765 43210"/></label><label className="lead-whatsapp-consent"><input type="checkbox" checked={form.whatsapp_opt_in} onChange={event => setForm(current => ({ ...current, whatsapp_opt_in: event.target.checked }))}/> This contact agreed to receive WhatsApp messages.</label><label>Lead source<select value={form.source} onChange={event => setField('source', event.target.value)}>{['Website', 'Referral', 'Social media', 'Event', 'Partner', 'Outbound', 'Other'].map(source => <option key={source}>{source}</option>)}</select></label><label>Industry<input maxLength={120} value={form.industry} onChange={event => setField('industry', event.target.value)} placeholder="e.g. Manufacturing"/></label><label>Estimated opportunity (₹)<input type="number" min="0" step="1000" value={form.estimated_value} onChange={event => setField('estimated_value', event.target.value)} placeholder="0"/></label><label>Next follow-up<input type="date" value={form.next_follow_up} onChange={event => setField('next_follow_up', event.target.value)}/></label><label>Pipeline stage<select value={form.status} onChange={event => setField('status', event.target.value)}>{stages.map(stage => <option key={stage.id} value={stage.id}>{stage.label}</option>)}</select></label><label className="lead-form-wide">Notes<textarea rows={3} maxLength={4000} value={form.notes} onChange={event => setField('notes', event.target.value)} placeholder="What does this business need? Add useful context for the next conversation."/></label>
         {error && <p className="lead-form-error" role="alert">{error}</p>}<div className="lead-form-actions"><button type="button" className="crm-secondary" onClick={() => setModal(false)}>Cancel</button><button type="submit" className="crm-primary" disabled={saving}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Save lead'} <ArrowRight size={15}/></button></div>
       </form></section></div>}
+    {messageOpen && <div className="crm-modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setMessageOpen(false) }}><section className="crm-modal message-compose-modal" role="dialog" aria-modal="true" aria-labelledby="message-compose-title"><div className="crm-modal-head"><div><span className="crm-eyebrow">CRM MESSAGING</span><h2 id="message-compose-title">Send a message</h2><p>Send a message to a saved lead by email or WhatsApp.</p></div><button type="button" className="crm-icon-button" onClick={() => setMessageOpen(false)} aria-label="Close message form"><X size={17}/></button></div><form className="message-compose-form" onSubmit={sendLeadMessage}><label>Recipient<select required value={messageLeadId ?? ''} onChange={event => setMessageLeadId(Number(event.target.value) || null)}><option value="">Choose an approved lead</option>{leads.map(lead => <option key={lead.id} value={lead.id} disabled={lead.approval_status !== 'approved'}>{lead.company_name}{lead.approval_status !== 'approved' ? ' · awaiting approval' : ''}</option>)}</select></label><div className="message-recipient-details">{messageLeadId && (() => { const lead = leads.find(item => item.id === messageLeadId); return lead ? <>{lead.contact_name && <b>{lead.contact_name}</b>}<span>{lead.email || 'No email'} · {lead.phone || 'No phone'}</span></> : null })()}</div><label>Send via<select value={messageChannel} onChange={event => setMessageChannel(event.target.value as 'email' | 'whatsapp')}><option value="email" disabled={!leads.find(item => item.id === messageLeadId)?.email}>Email</option><option value="whatsapp" disabled={!leads.find(item => item.id === messageLeadId)?.phone || !leads.find(item => item.id === messageLeadId)?.whatsapp_opt_in}>WhatsApp {!leads.find(item => item.id === messageLeadId)?.whatsapp_opt_in ? '· consent required' : ''}</option></select></label>{messageChannel === 'whatsapp' && <p className="message-channel-note">WhatsApp sends through your Meta approved message template and requires recorded consent from this contact.</p>}<label>Your message<textarea required minLength={1} maxLength={700} rows={5} value={messageText} onChange={event => setMessageText(event.target.value)} placeholder="Write a clear message…"/><small>{messageText.length}/700 characters</small></label>{messageResult && <p className={`message-compose-result ${messageResult.startsWith('The provider accepted') ? 'success' : ''}`} role="status">{messageResult}</p>}<div className="lead-form-actions"><button type="button" className="crm-secondary" onClick={() => setMessageOpen(false)}>Close</button><button type="submit" className="crm-primary" disabled={messageSending || !messageLeadId || (messageChannel === 'email' ? !leads.find(item => item.id === messageLeadId)?.email : !leads.find(item => item.id === messageLeadId)?.phone || !leads.find(item => item.id === messageLeadId)?.whatsapp_opt_in)}>{messageSending ? 'Sending…' : 'Send message'} <Send size={14}/></button></div></form></section></div>}
   </div>
 }
 
-function emptyForm() { return { company_name: '', contact_name: '', email: '', phone: '', source: 'Website', industry: '', estimated_value: '', status: 'new', next_follow_up: '', notes: '' } }
+function emptyForm() { return { company_name: '', contact_name: '', email: '', phone: '', whatsapp_opt_in: false, source: 'Website', industry: '', estimated_value: '', status: 'new', next_follow_up: '', notes: '' } }
 function stageLabel(status: string) { return stages.find(stage => stage.id === status)?.label || status }

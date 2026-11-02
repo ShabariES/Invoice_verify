@@ -168,6 +168,23 @@ body:has(.layout) { background:var(--app-canvas);color:var(--app-ink); }
 .layout .crm-empty-icon { background:#fff0d8;color:#a9581b; }.layout .crm-empty b,.layout .leads-empty b { color:#4a382a;font-size:12px; }.layout .crm-empty p,.layout .leads-empty p { color:#8f7d6b;font-size:11px; }
 .layout .crm-accounting-strip { border-color:var(--app-line);border-radius:14px;background:#fffefa; }.layout .accounting-icon { background:#fff0d8;color:#a9581b; }.layout .crm-accounting-strip small { color:#a85318; }.layout .crm-accounting-strip b { color:#3e2f24; }.layout .crm-accounting-strip p { color:#8c7c6a; }.layout .accounting-link { color:#547d5d; }
 .layout .crm-page-heading { margin-bottom:22px; }.layout .crm-page-heading h1,.layout .heading h1 { color:#31241b;font-size:30px;letter-spacing:-.7px; }.layout .crm-page-heading p,.layout .heading p { color:#817263;font-size:13px; }.layout .crm-page-heading .crm-eyebrow,.layout .kicker { color:#a85318;font-size:10px;letter-spacing:1.3px; }
+.layout .crm-heading-actions { display:flex;align-items:center;gap:9px;flex:0 0 auto; }
+.layout .lead-whatsapp-consent { display:flex;grid-column:1 / -1;align-items:flex-start;gap:9px;padding:11px 12px;border:1px solid var(--app-line);border-radius:10px;background:#fffaf2;color:#6d5a47!important;font-size:11px!important;letter-spacing:0!important;line-height:1.5; }
+.layout .lead-form .lead-whatsapp-consent input { width:16px;min-width:16px;height:16px;min-height:16px;margin:1px 0 0;accent-color:var(--sunset-burnt); }
+.layout .message-compose-modal { width:min(560px,100%); }
+.layout .message-compose-form { display:grid;gap:13px;padding:20px 23px 23px; }
+.layout .message-compose-form label { display:grid;gap:6px;color:#6d5a47;font-size:10px;font-weight:700;letter-spacing:.4px; }
+.layout .message-compose-form select,.layout .message-compose-form textarea { width:100%;border:1px solid #e5dbce;border-radius:9px;background:#fffefa;color:#35281e;font:500 12px 'DM Sans',sans-serif;padding:10px 12px; }
+.layout .message-compose-form select { min-height:42px; }
+.layout .message-compose-form textarea { min-height:120px;resize:vertical;line-height:1.55; }
+.layout .message-compose-form select:focus,.layout .message-compose-form textarea:focus { outline:none;border-color:#e89a40;box-shadow:0 0 0 3px #f88f221c; }
+.layout .message-compose-form label > small { justify-self:end;color:#887765;font-size:10px;font-weight:500;letter-spacing:0; }
+.layout .message-recipient-details { display:grid;gap:3px;margin-top:-7px;padding:10px 12px;border:1px solid var(--app-line);border-radius:9px;background:#fbf6ee;color:#756655;font-size:11px; }
+.layout .message-recipient-details b { color:#35281e; }
+.layout .message-channel-note,.layout .message-compose-result { margin:0;padding:10px 12px;border-radius:9px;background:#fff5e4;color:#76542e;font-size:11px;line-height:1.5; }
+.layout .message-compose-result.success { background:#edf7ef;color:#336345; }
+.layout .message-compose-form .lead-form-actions { margin-top:2px; }
+@media (max-width:640px) { .layout .crm-page-heading { align-items:flex-start;flex-direction:column; }.layout .crm-heading-actions { width:100%; }.layout .crm-heading-actions > button { flex:1; }.layout .message-compose-form { padding:16px; } }
 .layout .leads-toolbar { padding:20px 22px; }.layout .leads-toolbar span { color:#8a7968;font-size:11px; }.layout .lead-filter { height:38px;border-color:#e8ded1;border-radius:10px;background:#fffefa;color:#87745f; }.layout .lead-filter select { color:#594838;font-size:12px; }
 .layout .leads-table th { padding:13px 16px;background:#faf7f1;color:#877764;font-size:10px;letter-spacing:.75px; }.layout .leads-table td { padding:14px 16px;border-color:#eee7de;color:#665545;font-size:12px; }.layout .leads-table tbody tr:hover { background:#fff9ef; }.layout .table-company b { color:#392b21;font-size:12px; }.layout .table-company small { color:#948270;font-size:10px; }
 .layout .crm-modal-backdrop { background:#24180ed1;backdrop-filter:blur(5px); }.layout .crm-modal { border-radius:18px;background:#fffefa;box-shadow:0 28px 80px #20140e44; }.layout .crm-modal-head { border-color:var(--app-line); }.layout .crm-modal-head h2 { color:#34271e;font-size:19px; }.layout .crm-modal-head p { color:#887765; }

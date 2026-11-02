@@ -41,6 +41,8 @@ Sessions use signed, HTTP-only cookies. The browser calls the API with credentia
 
 The workspace header bell shows durable in-app notifications and refreshes every 30 seconds. Configure SMTP and Meta WhatsApp Cloud API values in `backend/.env` (or the API host’s secret environment) to enable outbound email and WhatsApp alerts. Users must provide a phone number and opt in before account notifications go to WhatsApp. Invoice attachments can also be received from an approved Lead’s authenticated email address through a signed Mailgun inbound route, or from the Lead’s saved WhatsApp number through a signed Meta Cloud API webhook. See [DEPLOYMENT.md](DEPLOYMENT.md) for provider setup and required secrets.
 
+From **Leads → Send message**, a signed-in user can send to an approved CRM contact by SMTP email or WhatsApp. WhatsApp requires a saved contact number, recorded consent, and a Meta-approved message template. The UI confirms when the provider accepts the send request; configure provider delivery webhooks if you need final delivered/read receipts.
+
 ### Enable invoice OCR without containers
 
 OCR runs as a separate Python process. Install Tesseract OCR on the host and make sure the `tesseract` executable is on `PATH`. From the `backend` directory, install OCR dependencies in the same Python environment as the API and start the service:

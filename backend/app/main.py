@@ -24,7 +24,7 @@ from app.database import Base, SessionLocal, engine, get_db
 from app.models import InboundReceipt, Invoice, InvoiceEvent, InvoiceLine, Lead, Notification, User
 from app.inbound import ALLOWED_EXTENSIONS, MAX_INVOICE_BYTES, authenticated_mail_headers, download_whatsapp_media, normalize_phone, parse_sender, verify_mailgun_signature, verify_whatsapp_signature
 from app.notifications import channel_status, send_email_notification, send_whatsapp_notification
-from app.schemas import ChatRequest, InvoiceEventOut, InvoiceOut, InvoiceUpdate, LeadApprovalRequest, LeadCreate, LeadOut, LeadUpdate, LoginRequest, NotificationOut, NotificationPreferencesRequest, RegisterRequest, UserApprovalRequest, UserOut
+from app.schemas import ChatRequest, InvoiceEventOut, InvoiceOut, InvoiceUpdate, LeadApprovalRequest, LeadCreate, LeadMessageRequest, LeadOut, LeadUpdate, LoginRequest, NotificationOut, NotificationPreferencesRequest, RegisterRequest, UserApprovalRequest, UserOut
 from app.security import hash_password, verify_password
 from app.storage import load_invoice_source, save_invoice_source
 
@@ -49,6 +49,7 @@ timestamp_type = "TIMESTAMP WITH TIME ZONE" if engine.dialect.name == "postgresq
 with engine.begin() as connection:
     for name, ddl in {
         "owner_user_id": "INTEGER",
+        "whatsapp_opt_in": "BOOLEAN NOT NULL DEFAULT FALSE",
         "approval_status": "VARCHAR(24) NOT NULL DEFAULT 'approved'",
         "approved_by": "VARCHAR(254) NOT NULL DEFAULT ''",
         "approved_at": timestamp_type,
@@ -386,6 +387,8 @@ def create_lead(payload: LeadCreate, background_tasks: BackgroundTasks, db: Sess
     values["company_name"] = values["company_name"].strip()
     if not values["company_name"]:
         raise HTTPException(422, "Company name is required")
+    if values["whatsapp_opt_in"] and not values["phone"].strip():
+        raise HTTPException(422, "Add the contact WhatsApp number before recording consent")
     lead = Lead(**values, owner_user_id=user.id, approval_status="pending")
     db.add(lead)
     db.commit()
@@ -407,7 +410,13 @@ def update_lead(lead_id: int, payload: LeadUpdate, db: Session = Depends(get_db)
         lead.approved_by = ""
         lead.approved_at = None
         lead.rejection_reason = ""
-    for key, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    new_phone = changes.get("phone", lead.phone)
+    if changes.get("whatsapp_opt_in") and not (new_phone or "").strip():
+        raise HTTPException(422, "Add the contact WhatsApp number before recording consent")
+    if "phone" in changes and changes["phone"] != lead.phone and "whatsapp_opt_in" not in changes:
+        lead.whatsapp_opt_in = False
+    for key, value in changes.items():
         if key == "company_name" and value is not None:
             value = value.strip()
             if not value:
@@ -416,6 +425,38 @@ def update_lead(lead_id: int, payload: LeadUpdate, db: Session = Depends(get_db)
     db.commit()
     db.refresh(lead)
     return lead
+
+
+@app.post("/api/leads/{lead_id}/message")
+async def send_lead_message(lead_id: int, payload: LeadMessageRequest, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    lead = db.get(Lead, lead_id)
+    if not lead or (user.role != "admin" and lead.owner_user_id != user.id):
+        raise HTTPException(404, "Lead not found")
+    if lead.approval_status != "approved":
+        raise HTTPException(409, "This lead must be approved before contacting it")
+    message = payload.message.strip()
+    if not message:
+        raise HTTPException(422, "Write a message before sending")
+    channels = channel_status()
+    if payload.channel == "email":
+        if not lead.email:
+            raise HTTPException(422, "Add an email address to this lead first")
+        if not channels["email"]:
+            raise HTTPException(503, "Outbound email is not configured. Set SMTP_HOST and SMTP_FROM_EMAIL.")
+        delivered = await asyncio.to_thread(send_email_notification, lead.email, f"A message from TechJays · {lead.company_name}"[:180], message)
+        recipient = lead.email
+    else:
+        if not lead.phone:
+            raise HTTPException(422, "Add a WhatsApp number to this lead first")
+        if not lead.whatsapp_opt_in:
+            raise HTTPException(403, "Record the contact’s WhatsApp consent before sending")
+        if not channels["whatsapp"]:
+            raise HTTPException(503, "WhatsApp sending is not configured. Check the Cloud API token, phone number ID, and approved template.")
+        delivered = await asyncio.to_thread(send_whatsapp_notification, lead.phone, f"Message from TechJays · {lead.company_name}", message)
+        recipient = lead.phone
+    if not delivered:
+        raise HTTPException(502, f"The {payload.channel} provider did not accept the message. Check the API logs and provider settings.")
+    return {"accepted": True, "channel": payload.channel, "recipient": recipient, "message": "The provider accepted the message for delivery."}
 
 
 @app.post("/api/leads/{lead_id}/approval", response_model=LeadOut)
