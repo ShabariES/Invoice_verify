@@ -1,19 +1,22 @@
 import { FormEvent, useState } from 'react'
-import { ArrowRight, Check, Eye, EyeOff, FileCheck2, LockKeyhole, Mail, Phone, ReceiptText, ScanSearch, ShieldCheck, Upload, UserRound } from 'lucide-react'
+import { ArrowRight, Check, Eye, EyeOff, FileCheck2, LockKeyhole, Mail, MessageCircle, Phone, ReceiptText, ScanSearch, ShieldCheck, Upload, UserRound } from 'lucide-react'
 import { API, apiFetch } from './api'
 
 type AuthMode = 'signup' | 'signin'
+const ADMIN_WHATSAPP_NUMBER = '916369035633'
 export type AuthUser = { id: number; name: string; company_name?: string; email: string; role: 'lead' | 'admin'; approval_status?: 'pending' | 'approved' | 'rejected' }
 
 export default function AuthScreen({ onEnter, onBack, initialMode = 'signup' }: { onEnter: (user: AuthUser) => void; onBack?: () => void; initialMode?: AuthMode }) {
   const [mode, setMode] = useState<AuthMode>(initialMode)
   const [showPassword, setShowPassword] = useState(false)
   const [notice, setNotice] = useState('')
+  const [whatsAppContactUrl, setWhatsAppContactUrl] = useState('')
   const [busy, setBusy] = useState(false)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setNotice('')
+    setWhatsAppContactUrl('')
     setBusy(true)
     const formElement = event.currentTarget
     const form = new FormData(formElement)
@@ -26,6 +29,8 @@ export default function AuthScreen({ onEnter, onBack, initialMode = 'signup' }: 
       if (!response.ok) throw new Error(data.detail || 'Could not sign in.')
       if (mode === 'signup' && data.approval_status === 'pending') {
         setNotice('Your access request has been sent to an Admin. You can sign in after it is approved.')
+        const text = `Hello TechJays Admin, I just requested workspace access. Name: ${body.name}. Company: ${body.company_name}. Email: ${body.email}. Please review my request.`
+        setWhatsAppContactUrl(`https://wa.me/${ADMIN_WHATSAPP_NUMBER}?text=${encodeURIComponent(text)}`)
         formElement.reset()
         return
       }
@@ -68,8 +73,9 @@ export default function AuthScreen({ onEnter, onBack, initialMode = 'signup' }: 
           {mode === 'signin' && <div className="auth-options"><label className="remember"><input type="checkbox"/> Keep me signed in</label><span>Secure session</span></div>}
           <button className="auth-submit" type="submit" disabled={busy}>{busy ? 'Please wait…' : mode === 'signup' ? 'Request access' : 'Sign in'}<ArrowRight size={17}/></button>
           {notice && <p className="auth-notice" role="status">{notice}</p>}
+          {whatsAppContactUrl && <a className="auth-whatsapp-link" href={whatsAppContactUrl} target="_blank" rel="noopener noreferrer"><MessageCircle size={15}/> Contact admin on WhatsApp</a>}
         </form>
-        <div className="auth-switch">{mode === 'signup' ? 'Already have an account?' : 'New to Invoice Desk?'} <button onClick={() => { setMode(mode === 'signup' ? 'signin' : 'signup'); setNotice('') }}>{mode === 'signup' ? 'Sign in' : 'Create an account'}</button></div>
+        <div className="auth-switch">{mode === 'signup' ? 'Already have an account?' : 'New to Invoice Desk?'} <button onClick={() => { setMode(mode === 'signup' ? 'signin' : 'signup'); setNotice(''); setWhatsAppContactUrl('') }}>{mode === 'signup' ? 'Sign in' : 'Create an account'}</button></div>
         <div className="auth-local-note"><span/> ADMIN REVIEW <i/> New Lead accounts require approval</div>
       </div>
       <p className="auth-legal">By continuing, you agree to use this local invoice review workspace responsibly.</p>

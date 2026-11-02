@@ -422,6 +422,30 @@ body:has(.auth-shell) {
   text-align: center;
 }
 
+.auth-whatsapp-link {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 16px;
+  border: 1px solid #b7d7ba;
+  border-radius: 12px;
+  background: #eff8ef;
+  color: #28643b;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background .15s, transform .15s;
+}
+
+.auth-whatsapp-link:hover {
+  background: #e5f3e6;
+  transform: translateY(-1px);
+}
+
 .auth-switch {
   margin-top: 23px;
   color: #718174;
