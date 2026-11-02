@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { ArrowRight, ArrowUpRight, BriefcaseBusiness, CalendarClock, Check, ChevronRight, CircleDollarSign, Filter, Plus, Search, Send, ShieldCheck, Sparkles, Target, UsersRound, X } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, BriefcaseBusiness, CalendarClock, Check, ChevronRight, CircleDollarSign, Filter, Paperclip, Plus, Search, Send, ShieldCheck, Sparkles, Target, UsersRound, X } from 'lucide-react'
 import { API, apiFetch } from './api'
 
 export type Lead = {
@@ -82,10 +82,6 @@ export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialF
   const [approvalBusy, setApprovalBusy] = useState<number | null>(null)
   const [messageOpen, setMessageOpen] = useState(false)
   const [messageLeadId, setMessageLeadId] = useState<number | null>(null)
-  const [messageChannel, setMessageChannel] = useState<'email' | 'whatsapp'>('email')
-  const [messageText, setMessageText] = useState('')
-  const [messageSending, setMessageSending] = useState(false)
-  const [messageResult, setMessageResult] = useState('')
   useEffect(() => {
     if (!isAdmin) return
     void apiFetch(`${API}/api/admin/lead-accounts`).then(async response => {
@@ -121,20 +117,7 @@ export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialF
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not connect to the local CRM API.') }
     finally { setSaving(false) }
   }
-  const openMessage = (lead?: Lead) => { setMessageLeadId(lead?.id ?? leads.find(item => item.approval_status === 'approved')?.id ?? null); setMessageChannel('email'); setMessageText(''); setMessageResult(''); setMessageOpen(true) }
-  async function sendLeadMessage(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!messageLeadId) return
-    setMessageSending(true); setMessageResult('')
-    try {
-      const response = await apiFetch(`${API}/api/leads/${messageLeadId}/message`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: messageChannel, message: messageText }) })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.detail || 'Could not send this message.')
-      setMessageResult(`${data.message || 'The provider accepted the message for delivery.'} Sent to ${data.recipient || 'the selected contact'}. Check Spam or Promotions if it is missing.`)
-      setMessageText('')
-    } catch (cause) { setMessageResult(cause instanceof Error ? cause.message : 'Could not connect to the messaging service.') }
-    finally { setMessageSending(false) }
-  }
+  const openMessage = (lead?: Lead) => { setMessageLeadId(lead?.id ?? null); setMessageOpen(true) }
   async function decideLead(lead: Lead, action: 'approved' | 'rejected') {
     const reason = action === 'rejected' ? window.prompt('Reason for rejecting this lead (optional):') : ''
     if (reason === null) return
@@ -182,7 +165,82 @@ export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialF
       <form className="lead-form" onSubmit={submit}><label>Company name<input required maxLength={240} value={form.company_name} onChange={event => setField('company_name', event.target.value)} placeholder="e.g. Acme Industries" autoFocus/></label><label>Contact person<input maxLength={160} value={form.contact_name} onChange={event => setField('contact_name', event.target.value)} placeholder="Full name"/></label><label>Email address<input type="email" maxLength={254} value={form.email} onChange={event => setField('email', event.target.value)} placeholder="name@company.com"/></label><label>Phone number<input type="tel" maxLength={40} value={form.phone} onChange={event => setForm(current => ({ ...current, phone: event.target.value, whatsapp_opt_in: event.target.value === current.phone ? current.whatsapp_opt_in : false }))} placeholder="+91 98765 43210"/></label><label className="lead-whatsapp-consent"><input type="checkbox" checked={form.whatsapp_opt_in} onChange={event => setForm(current => ({ ...current, whatsapp_opt_in: event.target.checked }))}/> This contact agreed to receive WhatsApp messages.</label><label>Lead source<select value={form.source} onChange={event => setField('source', event.target.value)}>{['Website', 'Referral', 'Social media', 'Event', 'Partner', 'Outbound', 'Other'].map(source => <option key={source}>{source}</option>)}</select></label><label>Industry<input maxLength={120} value={form.industry} onChange={event => setField('industry', event.target.value)} placeholder="e.g. Manufacturing"/></label><label>Estimated opportunity (₹)<input type="number" min="0" step="1000" value={form.estimated_value} onChange={event => setField('estimated_value', event.target.value)} placeholder="0"/></label><label>Next follow-up<input type="date" value={form.next_follow_up} onChange={event => setField('next_follow_up', event.target.value)}/></label><label>Pipeline stage<select value={form.status} onChange={event => setField('status', event.target.value)}>{stages.map(stage => <option key={stage.id} value={stage.id}>{stage.label}</option>)}</select></label><label className="lead-form-wide">Notes<textarea rows={3} maxLength={4000} value={form.notes} onChange={event => setField('notes', event.target.value)} placeholder="What does this business need? Add useful context for the next conversation."/></label>
         {error && <p className="lead-form-error" role="alert">{error}</p>}<div className="lead-form-actions"><button type="button" className="crm-secondary" onClick={() => setModal(false)}>Cancel</button><button type="submit" className="crm-primary" disabled={saving}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Save lead'} <ArrowRight size={15}/></button></div>
       </form></section></div>}
-    {messageOpen && <div className="crm-modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setMessageOpen(false) }}><section className="crm-modal message-compose-modal" role="dialog" aria-modal="true" aria-labelledby="message-compose-title"><div className="crm-modal-head"><div><span className="crm-eyebrow">CRM MESSAGING</span><h2 id="message-compose-title">Send a message</h2><p>Send a message to a saved lead by email or WhatsApp.</p></div><button type="button" className="crm-icon-button" onClick={() => setMessageOpen(false)} aria-label="Close message form"><X size={17}/></button></div><form className="message-compose-form" onSubmit={sendLeadMessage}><label>Recipient<select required value={messageLeadId ?? ''} onChange={event => setMessageLeadId(Number(event.target.value) || null)}><option value="">Choose an approved lead</option>{leads.map(lead => <option key={lead.id} value={lead.id} disabled={lead.approval_status !== 'approved'}>{lead.company_name}{lead.approval_status !== 'approved' ? ' · awaiting approval' : ''}</option>)}</select></label><div className="message-recipient-details">{messageLeadId && (() => { const lead = leads.find(item => item.id === messageLeadId); return lead ? <>{lead.contact_name && <b>{lead.contact_name}</b>}<span>{lead.email || 'No email'} · {lead.phone || 'No phone'}</span></> : null })()}</div><label>Send via<select value={messageChannel} onChange={event => setMessageChannel(event.target.value as 'email' | 'whatsapp')}><option value="email" disabled={!leads.find(item => item.id === messageLeadId)?.email}>Email</option><option value="whatsapp" disabled={!leads.find(item => item.id === messageLeadId)?.phone || !leads.find(item => item.id === messageLeadId)?.whatsapp_opt_in}>WhatsApp {!leads.find(item => item.id === messageLeadId)?.whatsapp_opt_in ? '· consent required' : ''}</option></select></label>{messageChannel === 'whatsapp' && <p className="message-channel-note">WhatsApp sends through your Meta approved message template and requires recorded consent from this contact.</p>}<label>Your message<textarea required minLength={1} maxLength={700} rows={5} value={messageText} onChange={event => setMessageText(event.target.value)} placeholder="Write a clear message…"/><small>{messageText.length}/700 characters</small></label>{messageResult && <p className={`message-compose-result ${messageResult.startsWith('SMTP accepted') || messageResult.startsWith('The provider accepted') ? 'success' : ''}`} role="status">{messageResult}</p>}<div className="lead-form-actions"><button type="button" className="crm-secondary" onClick={() => setMessageOpen(false)}>Close</button><button type="submit" className="crm-primary" disabled={messageSending || !messageLeadId || (messageChannel === 'email' ? !leads.find(item => item.id === messageLeadId)?.email : !leads.find(item => item.id === messageLeadId)?.phone || !leads.find(item => item.id === messageLeadId)?.whatsapp_opt_in)}>{messageSending ? 'Sending…' : 'Send message'} <Send size={14}/></button></div></form></section></div>}
+    {messageOpen && <MessageComposer leads={leads} initialLeadId={messageLeadId} onClose={() => setMessageOpen(false)}/>}
+  </div>
+}
+
+function MessageComposer({ leads, initialLeadId, onClose }: { leads: Lead[]; initialLeadId: number | null; onClose: () => void }) {
+  const [leadId, setLeadId] = useState<number | null>(initialLeadId)
+  const selectedLead = leads.find(lead => lead.id === leadId) || null
+  const [recipientEmail, setRecipientEmail] = useState(selectedLead?.email || '')
+  const [channel, setChannel] = useState<'email' | 'whatsapp'>('email')
+  const [message, setMessage] = useState('')
+  const [files, setFiles] = useState<File[]>([])
+  const [sending, setSending] = useState(false)
+  const [result, setResult] = useState('')
+  const canUseWhatsApp = !!selectedLead?.phone && selectedLead.whatsapp_opt_in
+
+  function chooseLead(value: string) {
+    const nextId = Number(value) || null
+    const lead = leads.find(item => item.id === nextId)
+    setLeadId(nextId)
+    setRecipientEmail(lead?.email || '')
+    if (channel === 'whatsapp' && (!lead?.phone || !lead.whatsapp_opt_in)) setChannel('email')
+  }
+
+  function chooseFiles(fileList: FileList | null) {
+    const selected = Array.from(fileList || [])
+    const total = selected.reduce((sum, file) => sum + file.size, 0)
+    const allowed = /\.(pdf|png|jpe?g|webp)$/i
+    setFiles([])
+    if (selected.length > 10) setResult('Attach up to 10 files at a time.')
+    else if (selected.some(file => !allowed.test(file.name))) setResult('Only PDF, PNG, JPG, and WEBP files can be attached.')
+    else if (selected.some(file => file.size > 15 * 1024 * 1024)) setResult('Each attachment must be 15 MB or smaller.')
+    else if (total > 18 * 1024 * 1024) setResult('Attachments must total 18 MB or less.')
+    else { setFiles(selected); setResult('') }
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (channel === 'whatsapp' && !canUseWhatsApp) {
+      setResult('Choose a saved contact with a WhatsApp number and recorded consent.')
+      return
+    }
+    setSending(true); setResult('')
+    try {
+      const body = new FormData()
+      body.append('channel', channel)
+      body.append('message', message)
+      body.append('recipient_email', recipientEmail)
+      if (leadId) body.append('lead_id', String(leadId))
+      files.forEach(file => body.append('attachments', file))
+      const response = await apiFetch(`${API}/api/messages/send`, { method: 'POST', body })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.detail || 'Could not send this message.')
+      const filesSent = Number(data.attachment_count || 0)
+      setResult(`${data.message} Recipient: ${data.recipient}.${filesSent ? ` ${filesSent} file${filesSent === 1 ? '' : 's'} attached.` : ''} Check Spam or Promotions if the email is missing.`)
+      setMessage('')
+      setFiles([])
+    } catch (cause) {
+      setResult(cause instanceof Error ? cause.message : 'Could not connect to the messaging service.')
+    } finally { setSending(false) }
+  }
+
+  return <div className="crm-modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
+    <section className="crm-modal message-compose-modal" role="dialog" aria-modal="true" aria-labelledby="message-compose-title">
+      <div className="crm-modal-head"><div><span className="crm-eyebrow">CRM MESSAGING</span><h2 id="message-compose-title">Send a message</h2><p>Enter an email directly or choose a saved contact.</p></div><button type="button" className="crm-icon-button" onClick={onClose} aria-label="Close message form"><X size={17}/></button></div>
+      <form className="message-compose-form" onSubmit={submit}>
+        <label>Saved CRM contact <span className="message-optional">OPTIONAL</span><select value={leadId ?? ''} onChange={event => chooseLead(event.target.value)}><option value="">Choose a saved contact</option>{leads.map(lead => <option key={lead.id} value={lead.id}>{lead.company_name}{lead.contact_name ? ` · ${lead.contact_name}` : ''}</option>)}</select></label>
+        {!leads.length && <p className="message-channel-note">No saved contacts yet. You can still enter an email address below.</p>}
+        {channel === 'email' ? <label>Recipient email<input type="email" required maxLength={254} value={recipientEmail} onChange={event => setRecipientEmail(event.target.value)} placeholder="recipient@company.com"/></label> : <div className="message-recipient-details"><b>WhatsApp recipient</b><span>{selectedLead?.phone || 'Select a saved contact with a WhatsApp number.'}</span><small>{canUseWhatsApp ? 'Consent recorded for this contact.' : 'WhatsApp requires a saved contact with recorded consent.'}</small></div>}
+        <label>Send via<select value={channel} onChange={event => { const next = event.target.value as 'email' | 'whatsapp'; setChannel(next); if (next === 'whatsapp') setFiles([]) }}><option value="email">Email</option><option value="whatsapp" disabled={!canUseWhatsApp}>WhatsApp {!canUseWhatsApp ? '· choose a consented contact' : ''}</option></select></label>
+        {channel === 'email' ? <label>Attachments <span className="message-optional">OPTIONAL</span><input className="message-file-input" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple onChange={event => { chooseFiles(event.target.files); event.target.value = '' }}/><small>PDF or image · 15 MB per file · 18 MB total</small></label> : <p className="message-channel-note">WhatsApp sends text using the approved Meta template. Send files by email.</p>}
+        {!!files.length && <ul className="message-file-list">{files.map((file, index) => <li key={`${file.name}-${index}`}><span><Paperclip size={13}/>{file.name}<small>{(file.size / 1024 / 1024).toFixed(2)} MB</small></span><button type="button" onClick={() => setFiles(current => current.filter((_, fileIndex) => fileIndex !== index))} aria-label={`Remove ${file.name}`}><X size={14}/></button></li>)}</ul>}
+        <label>Your message<textarea required minLength={1} maxLength={700} rows={5} value={message} onChange={event => setMessage(event.target.value)} placeholder="Write a clear message…"/><small>{message.length}/700 characters</small></label>
+        {result && <p className={`message-compose-result ${result.startsWith('SMTP accepted') || result.startsWith('The provider accepted') ? 'success' : ''}`} role="status">{result}</p>}
+        <div className="lead-form-actions"><button type="button" className="crm-secondary" onClick={onClose}>Close</button><button type="submit" className="crm-primary" disabled={sending || !message.trim() || (channel === 'whatsapp' && !canUseWhatsApp)}>{sending ? 'Sending…' : 'Send message'} <Send size={14}/></button></div>
+      </form>
+    </section>
   </div>
 }
 

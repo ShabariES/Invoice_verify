@@ -41,7 +41,7 @@ def channel_status() -> dict[str, bool | str]:
     }
 
 
-def send_email_notification(recipient: str, subject: str, message: str) -> bool:
+def send_email_notification(recipient: str, subject: str, message: str, attachments: list[tuple[str, bytes, str]] | None = None) -> bool:
     if not SMTP_HOST or not SMTP_FROM_EMAIL or not recipient:
         return False
     email = EmailMessage()
@@ -49,6 +49,11 @@ def send_email_notification(recipient: str, subject: str, message: str) -> bool:
     email["From"] = SMTP_FROM_EMAIL
     email["To"] = recipient
     email.set_content(f"{message}\n\nOpen TechJays Accounting CRM to review this notification.")
+    for filename, data, content_type in attachments or []:
+        maintype, separator, subtype = content_type.partition("/")
+        if not separator:
+            maintype, subtype = "application", "octet-stream"
+        email.add_attachment(data, maintype=maintype, subtype=subtype, filename=filename)
     try:
         context = ssl.create_default_context()
         if SMTP_USE_SSL:

@@ -21,6 +21,18 @@ MAX_INVOICE_BYTES = 15 * 1024 * 1024
 ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".webp"}
 
 
+def valid_invoice_attachment(data: bytes, filename: str) -> bool:
+    suffix = filename.rpartition(".")[2].lower()
+    if suffix:
+        suffix = "." + suffix
+    return bool(data) and (
+        (suffix == ".pdf" and data.startswith(b"%PDF-"))
+        or (suffix == ".png" and data.startswith(b"\x89PNG\r\n\x1a\n"))
+        or (suffix in {".jpg", ".jpeg"} and data.startswith(b"\xff\xd8\xff"))
+        or (suffix == ".webp" and len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP")
+    )
+
+
 def verify_mailgun_signature(timestamp: str, token: str, signature: str) -> bool:
     if not MAILGUN_WEBHOOK_SIGNING_KEY or not timestamp or not token or not signature:
         return False

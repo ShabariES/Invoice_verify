@@ -2,6 +2,7 @@ import hashlib
 import asyncio
 import hmac
 import json
+import mimetypes
 import re
 import urllib.error
 import urllib.request
@@ -9,7 +10,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from starlette.datastructures import UploadFile as StarletteUploadFile
@@ -22,7 +23,7 @@ from app.config import APP_ENV, BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD,
 from app.chat_knowledge import CHAT_SYSTEM_PROMPT
 from app.database import Base, SessionLocal, engine, get_db
 from app.models import InboundReceipt, Invoice, InvoiceEvent, InvoiceLine, Lead, Notification, User
-from app.inbound import ALLOWED_EXTENSIONS, MAX_INVOICE_BYTES, authenticated_mail_headers, download_whatsapp_media, normalize_phone, parse_sender, verify_mailgun_signature, verify_whatsapp_signature
+from app.inbound import ALLOWED_EXTENSIONS, MAX_INVOICE_BYTES, authenticated_mail_headers, download_whatsapp_media, normalize_phone, parse_sender, valid_invoice_attachment, verify_mailgun_signature, verify_whatsapp_signature
 from app.notifications import channel_status, send_email_notification, send_whatsapp_notification
 from app.schemas import ChatRequest, InvoiceEventOut, InvoiceOut, InvoiceUpdate, LeadApprovalRequest, LeadCreate, LeadMessageRequest, LeadOut, LeadUpdate, LoginRequest, NotificationOut, NotificationPreferencesRequest, RegisterRequest, UserApprovalRequest, UserOut
 from app.security import hash_password, verify_password
@@ -457,6 +458,75 @@ async def send_lead_message(lead_id: int, payload: LeadMessageRequest, db: Sessi
     if not delivered:
         raise HTTPException(502, f"The {payload.channel} provider did not accept the message. Check the API logs and provider settings.")
     return {"accepted": True, "channel": payload.channel, "recipient": recipient, "message": "SMTP accepted the message; this confirms submission, not inbox delivery." if payload.channel == "email" else "The provider accepted the message for delivery."}
+
+
+@app.post("/api/messages/send")
+async def send_workspace_message(
+    channel: str = Form(...),
+    message: str = Form(..., max_length=700),
+    recipient_email: str = Form(default=""),
+    lead_id: int | None = Form(default=None),
+    attachments: list[UploadFile] | None = File(default=None),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    if channel not in {"email", "whatsapp"}:
+        raise HTTPException(422, "Choose email or WhatsApp")
+    message = message.strip()
+    if not message:
+        raise HTTPException(422, "Write a message before sending")
+    lead = db.get(Lead, lead_id) if lead_id else None
+    if lead_id and (not lead or (user.role != "admin" and lead.owner_user_id != user.id)):
+        raise HTTPException(404, "Lead not found")
+    channels = channel_status()
+    if channel == "email":
+        recipient = (recipient_email or (lead.email if lead else "")).strip()
+        if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", recipient):
+            raise HTTPException(422, "Enter a valid recipient email address")
+        if not channels["email"]:
+            raise HTTPException(503, "Outbound email is not configured. Set SMTP_HOST and SMTP_FROM_EMAIL.")
+        mail_attachments: list[tuple[str, bytes, str]] = []
+        total_bytes = 0
+        if len(attachments or []) > 10:
+            raise HTTPException(413, "Attach up to 10 files per email")
+        for attachment in attachments or []:
+            filename = Path(attachment.filename or "").name
+            data = await attachment.read(MAX_INVOICE_BYTES + 1)
+            if len(data) > MAX_INVOICE_BYTES:
+                raise HTTPException(413, f"{filename or 'Attachment'} exceeds the 15 MB per-file limit")
+            total_bytes += len(data)
+            if total_bytes > 18 * 1024 * 1024:
+                raise HTTPException(413, "Email attachments must total 18 MB or less")
+            if not valid_invoice_attachment(data, filename):
+                raise HTTPException(415, f"{filename or 'Attachment'} must be a valid PDF, PNG, JPG, or WEBP file")
+            safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", filename)[:150] or "invoice.pdf"
+            guessed_type = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
+            mail_attachments.append((safe_name, data, guessed_type))
+        company = f" · {lead.company_name}" if lead else ""
+        subject = f"A message from TechJays{company}"[:180]
+        delivered = await asyncio.to_thread(send_email_notification, recipient, subject, message, mail_attachments)
+    else:
+        if attachments:
+            raise HTTPException(422, "File attachments can currently be sent by email only")
+        if not lead:
+            raise HTTPException(422, "Choose a saved CRM contact to send WhatsApp messages")
+        if not lead.phone:
+            raise HTTPException(422, "Add a WhatsApp number to this lead first")
+        if not lead.whatsapp_opt_in:
+            raise HTTPException(403, "Record the contact’s WhatsApp consent before sending")
+        if not channels["whatsapp"]:
+            raise HTTPException(503, "WhatsApp sending is not configured. Check the Cloud API token, phone number ID, and approved template.")
+        recipient = lead.phone
+        delivered = await asyncio.to_thread(send_whatsapp_notification, recipient, f"Message from TechJays · {lead.company_name}", message)
+    if not delivered:
+        raise HTTPException(502, f"The {channel} provider did not accept the message. Check the API logs and provider settings.")
+    return {
+        "accepted": True,
+        "channel": channel,
+        "recipient": recipient,
+        "attachment_count": len(mail_attachments) if channel == "email" else 0,
+        "message": "SMTP accepted the message; this confirms submission, not inbox delivery." if channel == "email" else "The provider accepted the message for delivery.",
+    }
 
 
 @app.post("/api/leads/{lead_id}/approval", response_model=LeadOut)
