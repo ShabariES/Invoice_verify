@@ -541,6 +541,17 @@ async def send_workspace_message(
         delivered = await asyncio.to_thread(send_whatsapp_notification, recipient, f"Message from TechJays · {lead.company_name}", message)
     if not delivered:
         raise HTTPException(502, f"The {channel} provider did not accept the message. Check the API logs and provider settings.")
+    if channel == "email":
+        file_note = f" ({len(mail_attachments)} attachment{'s' if len(mail_attachments) != 1 else ''})" if mail_attachments else ""
+        db.add(Notification(
+            recipient_user_id=user.id,
+            title="Email accepted for delivery",
+            message=f"Your email to {recipient} was accepted by the SMTP provider{file_note}. Check the recipient’s inbox, Spam, or Promotions.",
+            category="message",
+            entity_type="lead" if lead else "",
+            entity_id=lead.id if lead else None,
+        ))
+        db.commit()
     return {
         "accepted": True,
         "channel": channel,

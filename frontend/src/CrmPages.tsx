@@ -69,7 +69,7 @@ export function CrmHome({ leads, invoiceCount, canViewAccounting, onOpenLeads, o
   </div>
 }
 
-export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialFilter = 'all', isAdmin = false }: { leads: Lead[]; onLeadsChange: (leads: Lead[]) => void; createRequest: number; query: string; initialFilter?: string; isAdmin?: boolean }) {
+export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialFilter = 'all', isAdmin = false, onMessageSent }: { leads: Lead[]; onLeadsChange: (leads: Lead[]) => void; createRequest: number; query: string; initialFilter?: string; isAdmin?: boolean; onMessageSent: () => void }) {
   const [leadAccounts, setLeadAccounts] = useState<Array<{ id: number; name: string; company_name?: string; email: string; created_at?: string; approval_status: string }>>([])
   const [modal, setModal] = useState(false)
   const [editing, setEditing] = useState<Lead | null>(null)
@@ -175,11 +175,11 @@ export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialF
       <form className="lead-form" onSubmit={submit}><label>Company name<input required maxLength={240} value={form.company_name} onChange={event => setField('company_name', event.target.value)} placeholder="e.g. Acme Industries" autoFocus/></label><label>Contact person<input maxLength={160} value={form.contact_name} onChange={event => setField('contact_name', event.target.value)} placeholder="Full name"/></label><label>Email address<input type="email" maxLength={254} value={form.email} onChange={event => setField('email', event.target.value)} placeholder="name@company.com"/></label><label>Phone number<input type="tel" maxLength={40} value={form.phone} onChange={event => setForm(current => ({ ...current, phone: event.target.value, whatsapp_opt_in: event.target.value === current.phone ? current.whatsapp_opt_in : false }))} placeholder="+91 98765 43210"/></label><label className="lead-whatsapp-consent"><input type="checkbox" checked={form.whatsapp_opt_in} onChange={event => setForm(current => ({ ...current, whatsapp_opt_in: event.target.checked }))}/> This contact agreed to receive WhatsApp messages.</label><label>Lead source<select value={form.source} onChange={event => setField('source', event.target.value)}>{['Website', 'Referral', 'Social media', 'Event', 'Partner', 'Outbound', 'Other'].map(source => <option key={source}>{source}</option>)}</select></label><label>Industry<input maxLength={120} value={form.industry} onChange={event => setField('industry', event.target.value)} placeholder="e.g. Manufacturing"/></label><label>Estimated opportunity (₹)<input type="number" min="0" step="1000" value={form.estimated_value} onChange={event => setField('estimated_value', event.target.value)} placeholder="0"/></label><label>Next follow-up<input type="date" value={form.next_follow_up} onChange={event => setField('next_follow_up', event.target.value)}/></label><label>Pipeline stage<select value={form.status} onChange={event => setField('status', event.target.value)}>{stages.map(stage => <option key={stage.id} value={stage.id}>{stage.label}</option>)}</select></label><label className="lead-form-wide">Notes<textarea rows={3} maxLength={4000} value={form.notes} onChange={event => setField('notes', event.target.value)} placeholder="What does this business need? Add useful context for the next conversation."/></label>
         {error && <p className="lead-form-error" role="alert">{error}</p>}<div className="lead-form-actions"><button type="button" className="crm-secondary" onClick={() => setModal(false)}>Cancel</button><button type="submit" className="crm-primary" disabled={saving}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Save lead'} <ArrowRight size={15}/></button></div>
       </form></section></div>}
-    {messageOpen && <MessageComposer leads={leads} initialLeadId={messageLeadId} onClose={() => setMessageOpen(false)}/>}
+    {messageOpen && <MessageComposer leads={leads} initialLeadId={messageLeadId} onMessageSent={onMessageSent} onClose={() => setMessageOpen(false)}/>}
   </div>
 }
 
-function MessageComposer({ leads, initialLeadId, onClose }: { leads: Lead[]; initialLeadId: number | null; onClose: () => void }) {
+function MessageComposer({ leads, initialLeadId, onClose, onMessageSent }: { leads: Lead[]; initialLeadId: number | null; onClose: () => void; onMessageSent: () => void }) {
   const [leadId, setLeadId] = useState<number | null>(initialLeadId)
   const selectedLead = leads.find(lead => lead.id === leadId) || null
   const [recipientEmail, setRecipientEmail] = useState(selectedLead?.email || '')
@@ -227,6 +227,7 @@ function MessageComposer({ leads, initialLeadId, onClose }: { leads: Lead[]; ini
       const response = await apiFetch(`${API}/api/messages/send`, { method: 'POST', body })
       const data = await response.json()
       if (!response.ok) throw new Error(data.detail || 'Could not send this message.')
+      if (channel === 'email') onMessageSent()
       const filesSent = Number(data.attachment_count || 0)
       setResult(`${data.message} Recipient: ${data.recipient}.${filesSent ? ` ${filesSent} file${filesSent === 1 ? '' : 's'} attached.` : ''} Check Spam or Promotions if the email is missing.`)
       setMessage('')
