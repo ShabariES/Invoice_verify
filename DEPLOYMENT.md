@@ -65,6 +65,7 @@ Set these environment variables on the API service:
 | `WHATSAPP_TEMPLATE_NAME` | Approved Utility template with one body placeholder (`{{1}}`) |
 | `WHATSAPP_TEMPLATE_LANGUAGE` | Template language code, e.g. `en_US` |
 | `WHATSAPP_ADMIN_TO` | Optional comma-separated Admin notification destinations in international format |
+| `ADMIN_WHATSAPP_PHONE` | Default phone shown in the bootstrap Admin’s WhatsApp preferences; defaults to `+916369035633` |
 
 Generate `SESSION_SECRET_KEY` and `OCR_SERVICE_TOKEN` separately. Do not reuse the Groq key for either. Set secrets in Render’s Environment page, never in source files.
 

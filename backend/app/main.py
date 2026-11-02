@@ -19,7 +19,7 @@ from sqlalchemy import func, inspect, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.config import APP_ENV, BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD, FRONTEND_ORIGIN, GROQ_API_KEY, GROQ_MODEL, INBOUND_INVOICE_EMAIL, MAILGUN_WEBHOOK_SIGNING_KEY, OCR_REVIEW_THRESHOLD, OCR_SERVICE_TOKEN, OCR_SERVICE_URL, SESSION_SECRET_KEY, UPLOAD_DIR, WHATSAPP_ADMIN_TO, WHATSAPP_WEBHOOK_VERIFY_TOKEN
+from app.config import ADMIN_WHATSAPP_PHONE, APP_ENV, BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD, FRONTEND_ORIGIN, GROQ_API_KEY, GROQ_MODEL, INBOUND_INVOICE_EMAIL, MAILGUN_WEBHOOK_SIGNING_KEY, OCR_REVIEW_THRESHOLD, OCR_SERVICE_TOKEN, OCR_SERVICE_URL, SESSION_SECRET_KEY, UPLOAD_DIR, WHATSAPP_ADMIN_TO, WHATSAPP_WEBHOOK_VERIFY_TOKEN
 from app.chat_knowledge import CHAT_SYSTEM_PROMPT
 from app.database import Base, SessionLocal, engine, get_db
 from app.models import InboundReceipt, Invoice, InvoiceEvent, InvoiceLine, Lead, Notification, User
@@ -160,12 +160,17 @@ if BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD:
     with SessionLocal() as db:
         admin = db.scalar(select(User).where(User.email == BOOTSTRAP_ADMIN_EMAIL))
         if not admin:
-            db.add(User(name="Administrator", email=BOOTSTRAP_ADMIN_EMAIL, password_hash=hash_password(BOOTSTRAP_ADMIN_PASSWORD), role="admin", approval_status="approved"))
+            db.add(User(name="Administrator", email=BOOTSTRAP_ADMIN_EMAIL, phone=ADMIN_WHATSAPP_PHONE, password_hash=hash_password(BOOTSTRAP_ADMIN_PASSWORD), role="admin", approval_status="approved"))
         else:
             admin.role = "admin"
             admin.is_active = True
             admin.approval_status = "approved"
             admin.approval_rejection_reason = ""
+            admin_phone_digits = re.sub(r"\D", "", admin.phone or "")
+            configured_admin_phone_digits = re.sub(r"\D", "", ADMIN_WHATSAPP_PHONE)
+            configured_countryless_phone = configured_admin_phone_digits[2:] if configured_admin_phone_digits.startswith("91") else ""
+            if not admin_phone_digits or admin_phone_digits == configured_countryless_phone:
+                admin.phone = ADMIN_WHATSAPP_PHONE
         db.commit()
 elif APP_ENV == "production":
     raise RuntimeError("Set BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD before starting in production")
