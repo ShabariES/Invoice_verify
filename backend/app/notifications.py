@@ -55,7 +55,7 @@ def send_email_notification(recipient: str, subject: str, message: str) -> bool:
             with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=8, context=context) as client:
                 if SMTP_USERNAME:
                     client.login(SMTP_USERNAME, SMTP_PASSWORD)
-                client.send_message(email)
+                refused = client.send_message(email)
         else:
             with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=8) as client:
                 client.ehlo()
@@ -63,7 +63,10 @@ def send_email_notification(recipient: str, subject: str, message: str) -> bool:
                 client.ehlo()
                 if SMTP_USERNAME:
                     client.login(SMTP_USERNAME, SMTP_PASSWORD)
-                client.send_message(email)
+                refused = client.send_message(email)
+        if refused:
+            logger.warning("SMTP server refused one or more recipient addresses")
+            return False
         return True
     except (OSError, smtplib.SMTPException) as exc:
         logger.warning("Email notification delivery failed (%s)", type(exc).__name__)

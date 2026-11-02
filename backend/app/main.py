@@ -456,7 +456,7 @@ async def send_lead_message(lead_id: int, payload: LeadMessageRequest, db: Sessi
         recipient = lead.phone
     if not delivered:
         raise HTTPException(502, f"The {payload.channel} provider did not accept the message. Check the API logs and provider settings.")
-    return {"accepted": True, "channel": payload.channel, "recipient": recipient, "message": "The provider accepted the message for delivery."}
+    return {"accepted": True, "channel": payload.channel, "recipient": recipient, "message": "SMTP accepted the message; this confirms submission, not inbox delivery." if payload.channel == "email" else "The provider accepted the message for delivery."}
 
 
 @app.post("/api/leads/{lead_id}/approval", response_model=LeadOut)
