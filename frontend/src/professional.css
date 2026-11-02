@@ -190,6 +190,8 @@ body:has(.layout) { background:var(--app-canvas);color:var(--app-ink); }
 .layout .message-recipient-details { display:grid;gap:3px;margin-top:-7px;padding:10px 12px;border:1px solid var(--app-line);border-radius:9px;background:#fbf6ee;color:#756655;font-size:11px; }
 .layout .message-recipient-details b { color:#35281e; }
 .layout .message-channel-note,.layout .message-compose-result { margin:0;padding:10px 12px;border-radius:9px;background:#fff5e4;color:#76542e;font-size:11px;line-height:1.5; }
+.layout .message-whatsapp-consent { display:flex;align-items:flex-start;gap:8px;padding:9px 10px;border:1px solid var(--app-line);border-radius:9px;background:#fbf6ee;color:#756655;font-size:10px;line-height:1.45; }
+.layout .message-whatsapp-consent input { margin:1px 0 0;accent-color:#4b9560; }
 .layout .message-compose-result.success { background:#edf7ef;color:#336345; }
 .layout .message-compose-form .lead-form-actions { margin-top:2px; }
 @media (max-width:640px) { .layout .crm-page-heading { align-items:flex-start;flex-direction:column; }.layout .crm-heading-actions { width:100%; }.layout .crm-heading-actions > button { flex:1; }.layout .message-compose-form { padding:16px; } }

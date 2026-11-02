@@ -183,19 +183,24 @@ function MessageComposer({ leads, initialLeadId, onClose, onMessageSent }: { lea
   const [leadId, setLeadId] = useState<number | null>(initialLeadId)
   const selectedLead = leads.find(lead => lead.id === leadId) || null
   const [recipientEmail, setRecipientEmail] = useState(selectedLead?.email || '')
+  const [recipientPhone, setRecipientPhone] = useState(selectedLead?.phone || '')
+  const [phoneConsent, setPhoneConsent] = useState(false)
   const [channel, setChannel] = useState<'email' | 'whatsapp'>('email')
   const [message, setMessage] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [sending, setSending] = useState(false)
   const [result, setResult] = useState('')
-  const canUseWhatsApp = !!selectedLead?.phone && selectedLead.whatsapp_opt_in
+  const phoneDigits = recipientPhone.replace(/\D/g, '')
+  const phoneIsValid = phoneDigits.length >= 8 && phoneDigits.length <= 15
+  const canUseWhatsApp = selectedLead ? phoneIsValid && selectedLead.whatsapp_opt_in : phoneIsValid && phoneConsent
 
   function chooseLead(value: string) {
     const nextId = Number(value) || null
     const lead = leads.find(item => item.id === nextId)
     setLeadId(nextId)
     setRecipientEmail(lead?.email || '')
-    if (channel === 'whatsapp' && (!lead?.phone || !lead.whatsapp_opt_in)) setChannel('email')
+    setRecipientPhone(lead?.phone || '')
+    setPhoneConsent(false)
   }
 
   function chooseFiles(fileList: FileList | null) {
@@ -212,8 +217,24 @@ function MessageComposer({ leads, initialLeadId, onClose, onMessageSent }: { lea
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (channel === 'whatsapp' && !canUseWhatsApp) {
-      setResult('Choose a saved contact with a WhatsApp number and recorded consent.')
+    if (channel === 'whatsapp') {
+      if (!phoneIsValid) {
+        setResult('Enter a WhatsApp number in international format, including the country code.')
+        return
+      }
+      if (!canUseWhatsApp) {
+        setResult(selectedLead ? 'This lead has no recorded WhatsApp consent. Update its consent before contacting them.' : 'Confirm that this recipient agreed to WhatsApp contact.')
+        return
+      }
+      if (files.length) {
+        setResult('Free WhatsApp chat links cannot attach files. Remove attachments or send this message by email.')
+        return
+      }
+      const whatsappUrl = `https://wa.me/${phoneDigits}?text=${encodeURIComponent(message.trim())}`
+      const popup = window.open(whatsappUrl, '_blank')
+      if (popup) popup.opener = null
+      setResult(popup === null ? 'Allow pop-ups for this site to open WhatsApp.' : 'WhatsApp opened with your message. Review it there and press Send.')
+      if (popup !== null) setMessage('')
       return
     }
     setSending(true); setResult('')
@@ -243,13 +264,13 @@ function MessageComposer({ leads, initialLeadId, onClose, onMessageSent }: { lea
       <form className="message-compose-form" onSubmit={submit}>
         <label>Saved CRM contact <span className="message-optional">OPTIONAL</span><select value={leadId ?? ''} onChange={event => chooseLead(event.target.value)}><option value="">Choose a saved contact</option>{leads.map(lead => <option key={lead.id} value={lead.id}>{lead.company_name}{lead.contact_name ? ` · ${lead.contact_name}` : ''}</option>)}</select></label>
         {!leads.length && <p className="message-channel-note">No saved contacts yet. You can still enter an email address below.</p>}
-        {channel === 'email' ? <label>Recipient email<input type="email" required maxLength={254} value={recipientEmail} onChange={event => setRecipientEmail(event.target.value)} placeholder="recipient@company.com"/></label> : <div className="message-recipient-details"><b>WhatsApp recipient</b><span>{selectedLead?.phone || 'Select a saved contact with a WhatsApp number.'}</span><small>{canUseWhatsApp ? 'Consent recorded for this contact.' : 'WhatsApp requires a saved contact with recorded consent.'}</small></div>}
-        <label>Send via<select value={channel} onChange={event => { const next = event.target.value as 'email' | 'whatsapp'; setChannel(next); if (next === 'whatsapp') setFiles([]) }}><option value="email">Email</option><option value="whatsapp" disabled={!canUseWhatsApp}>WhatsApp {!canUseWhatsApp ? '· choose a consented contact' : ''}</option></select></label>
-        {channel === 'email' ? <label>Attachments <span className="message-optional">OPTIONAL</span><input className="message-file-input" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple onChange={event => { chooseFiles(event.target.files); event.target.value = '' }}/><small>PDF or image · 15 MB per file · 18 MB total</small></label> : <p className="message-channel-note">WhatsApp sends text using the approved Meta template. Send files by email.</p>}
+        {channel === 'email' ? <label>Recipient email<input type="email" required maxLength={254} value={recipientEmail} onChange={event => setRecipientEmail(event.target.value)} placeholder="recipient@company.com"/></label> : <><label>WhatsApp number<input type="tel" required value={recipientPhone} onChange={event => { setRecipientPhone(event.target.value); setLeadId(null); setPhoneConsent(false) }} placeholder="+91 98765 43210"/><small>Include the country code, e.g. +91.</small></label>{selectedLead ? <p className="message-channel-note">{selectedLead.whatsapp_opt_in ? 'WhatsApp consent is recorded for this lead.' : 'This lead has no recorded WhatsApp consent. Update the lead record before messaging.'}</p> : <label className="message-whatsapp-consent"><input type="checkbox" checked={phoneConsent} onChange={event => setPhoneConsent(event.target.checked)}/> I confirm this recipient agreed to WhatsApp contact.</label>}</>}
+        <label>Send via<select value={channel} onChange={event => { const next = event.target.value as 'email' | 'whatsapp'; setChannel(next); if (next === 'whatsapp') setFiles([]) }}><option value="email">Email</option><option value="whatsapp">WhatsApp · free manual chat</option></select></label>
+        {channel === 'email' ? <label>Attachments <span className="message-optional">OPTIONAL</span><input className="message-file-input" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple onChange={event => { chooseFiles(event.target.files); event.target.value = '' }}/><small>PDF or image · 15 MB per file · 18 MB total</small></label> : <p className="message-channel-note">Opens WhatsApp with your message filled in. You review and send it there. File attachments require email.</p>}
         {!!files.length && <ul className="message-file-list">{files.map((file, index) => <li key={`${file.name}-${index}`}><span><Paperclip size={13}/>{file.name}<small>{(file.size / 1024 / 1024).toFixed(2)} MB</small></span><button type="button" onClick={() => setFiles(current => current.filter((_, fileIndex) => fileIndex !== index))} aria-label={`Remove ${file.name}`}><X size={14}/></button></li>)}</ul>}
         <label>Your message<textarea required minLength={1} maxLength={700} rows={5} value={message} onChange={event => setMessage(event.target.value)} placeholder="Write a clear message…"/><small>{message.length}/700 characters</small></label>
         {result && <p className={`message-compose-result ${result.startsWith('SMTP accepted') || result.startsWith('The provider accepted') ? 'success' : ''}`} role="status">{result}</p>}
-        <div className="lead-form-actions"><button type="button" className="crm-secondary" onClick={onClose}>Close</button><button type="submit" className="crm-primary" disabled={sending || !message.trim() || (channel === 'whatsapp' && !canUseWhatsApp)}>{sending ? 'Sending…' : 'Send message'} <Send size={14}/></button></div>
+        <div className="lead-form-actions"><button type="button" className="crm-secondary" onClick={onClose}>Close</button><button type="submit" className="crm-primary" disabled={sending || !message.trim() || (channel === 'whatsapp' && !canUseWhatsApp)}>{channel === 'whatsapp' ? 'Open WhatsApp' : sending ? 'Sending…' : 'Send message'} <Send size={14}/></button></div>
       </form>
     </section>
   </div>

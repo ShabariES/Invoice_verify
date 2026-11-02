@@ -34,6 +34,7 @@ def channel_status() -> dict[str, bool | str]:
         "in_app": True,
         "email": bool(SMTP_HOST and SMTP_FROM_EMAIL),
         "whatsapp": bool(WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_TEMPLATE_NAME),
+        "whatsapp_manual": True,
         "email_inbound": bool(MAILGUN_WEBHOOK_SIGNING_KEY and INBOUND_INVOICE_EMAIL),
         "email_inbound_address": INBOUND_INVOICE_EMAIL,
         "whatsapp_inbound": bool(WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_APP_SECRET and WHATSAPP_WEBHOOK_VERIFY_TOKEN),
