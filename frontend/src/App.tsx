@@ -1,5 +1,5 @@
-import { ChangeEvent, useEffect, useRef, useState } from 'react'
-import { AlertCircle, Check, ChevronRight, Clock3, FileCheck2, FileText, LayoutDashboard, LogOut, Plus, Search, Upload, UsersRound, X } from 'lucide-react'
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from 'react'
+import { AlertCircle, Bell, Check, ChevronRight, Clock3, FileCheck2, FileText, LayoutDashboard, LogOut, MailCheck, MessageCircle, Plus, Search, Upload, UsersRound, X } from 'lucide-react'
 import PdfPreview from './PdfPreview'
 import AuthScreen, { AuthUser } from './AuthScreen'
 import { CrmHome, Lead, LeadsPage } from './CrmPages'
@@ -9,6 +9,7 @@ import { API, apiFetch } from './api'
 type Line = { description: string; quantity: number; rate: number; amount: number }
 type Invoice = { id: number; invoice_number: string; invoice_date: string | null; supplier_name: string; supplier_gstin: string; currency: string; subtotal: number; tax_amount: number; total: number; source_path: string; source_name: string; status: string; reviewer: string; lines: Line[]; ocr_status: string; ocr_provider: string; ocr_confidence: number | null; ocr_text: string }
 type InvoiceEvent = { id: number; invoice_id: number; event_type: string; actor: string; details: string; created_at: string }
+type AppNotification = { id: number; title: string; message: string; category: string; entity_type: string; entity_id: number | null; read_at: string | null; created_at: string }
 const empty = (id: number): Invoice => ({ id, invoice_number: '', invoice_date: null, supplier_name: '', supplier_gstin: '', currency: 'INR', subtotal: 0, tax_amount: 0, total: 0, source_path: '', source_name: '', status: 'needs_review', reviewer: '', lines: [], ocr_status: 'not_run', ocr_provider: '', ocr_confidence: null, ocr_text: '' })
 const fmt = (v: number, currency = 'INR') => new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : 'en-US', { style: 'currency', currency }).format(Number(v || 0))
 function countInvoiceMistakes(invoice: Invoice) {
@@ -41,6 +42,12 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [ocrBusy, setOcrBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const [notifications, setNotifications] = useState<AppNotification[]>([])
+  const [notificationOpen, setNotificationOpen] = useState(false)
+  const [notificationChannels, setNotificationChannels] = useState<{ email: boolean; whatsapp: boolean }>({ email: false, whatsapp: false })
+  const [notificationPrefs, setNotificationPrefs] = useState({ phone: '', whatsapp_opt_in: false })
+  const [prefsSaving, setPrefsSaving] = useState(false)
+  const [prefsMessage, setPrefsMessage] = useState('')
   const dashboardScrollRef = useRef<HTMLDivElement>(null)
   const current = invoices.find(i => i.id === selected) || null
   const invoiceMistakes = invoices.reduce((sum, invoice) => sum + countInvoiceMistakes(invoice), 0)
@@ -76,6 +83,24 @@ export default function App() {
     }).catch(() => undefined)
   }, [])
   useEffect(() => { if (user?.role === 'admin') void refresh(); else { setInvoices([]); setSelected(null) } }, [user])
+  useEffect(() => {
+    if (!user) { setNotifications([]); return }
+    const load = async () => {
+      try {
+        const response = await apiFetch(`${API}/api/notifications`)
+        if (response.ok) setNotifications(await response.json())
+        const preferences = await apiFetch(`${API}/api/auth/notification-preferences`)
+        if (preferences.ok) setNotificationPrefs(await preferences.json())
+        if (user.role === 'admin') {
+          const channels = await apiFetch(`${API}/api/notifications/channels`)
+          if (channels.ok) setNotificationChannels(await channels.json())
+        }
+      } catch { /* Notification polling is best effort; the workspace remains usable. */ }
+    }
+    void load()
+    const timer = window.setInterval(() => void load(), 30_000)
+    return () => window.clearInterval(timer)
+  }, [user])
   useEffect(() => {
     if (!selected) { setInvoiceEvents([]); return }
     apiFetch(`${API}/api/invoices/${selected}/events`).then(response => response.ok ? response.json() : []).then(setInvoiceEvents).catch(() => setInvoiceEvents([]))
@@ -132,13 +157,36 @@ export default function App() {
     await apiFetch(`${API}/api/auth/logout`, { method: 'POST' }).catch(() => undefined)
     setUser(null); setWorkspaceOpen(false); setAuthOpen(false); setInvoices([]); setLeads([]); setActiveView('home')
   }
+  async function openNotification(item: AppNotification) {
+    if (!item.read_at) {
+      const response = await apiFetch(`${API}/api/notifications/${item.id}/read`, { method: 'POST' }).catch(() => null)
+      if (response?.ok) setNotifications(items => items.map(currentItem => currentItem.id === item.id ? { ...currentItem, read_at: new Date().toISOString() } : currentItem))
+    }
+    setNotificationOpen(false)
+    if (item.entity_type === 'invoice' && item.entity_id && user?.role === 'admin') { setSelected(item.entity_id); setActiveView('invoices') }
+    else if (item.entity_type === 'lead') openLeads()
+  }
+  async function markAllNotificationsRead() {
+    const response = await apiFetch(`${API}/api/notifications/read-all`, { method: 'POST' }).catch(() => null)
+    if (response?.ok) setNotifications(items => items.map(item => ({ ...item, read_at: item.read_at || new Date().toISOString() })))
+  }
+  async function saveNotificationPrefs(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setPrefsSaving(true); setPrefsMessage('')
+    try {
+      const response = await apiFetch(`${API}/api/auth/notification-preferences`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(notificationPrefs) })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.detail || 'Could not save notification preferences.')
+      setNotificationPrefs(data); setPrefsMessage('WhatsApp preferences saved.')
+    } catch (error) { setPrefsMessage(error instanceof Error ? error.message : 'Could not save notification preferences.') }
+    finally { setPrefsSaving(false) }
+  }
   const openLeads = (filter = 'all') => { setLeadFilterIntent(filter); setActiveView('leads') }
   const createLead = () => { openLeads('all'); setCreateLeadRequest(count => count + 1) }
   const searchValue = activeView === 'invoices' ? query : leadQuery
   const setSearchValue = activeView === 'invoices' ? setQuery : setLeadQuery
   const pageTitle = activeView === 'home' ? 'Overview' : activeView === 'leads' ? 'Leads' : 'Invoices'
   return <div className="layout"><aside className="side"><div className="logo"><span>T</span><div><b>TECHJAYS</b><small>ACCOUNTING CRM</small></div></div><div className="nav-caption">WORKSPACE</div><button type="button" className={`nav ${activeView==='home'?'active':''}`} onClick={()=>setActiveView('home')}><LayoutDashboard size={18}/> Overview</button><button type="button" className={`nav ${activeView==='leads'?'active':''}`} onClick={()=>openLeads('all')}><UsersRound size={18}/> Leads <b>{leads.filter(lead=>!['won','lost'].includes(lead.status)).length}</b></button>{user?.role === 'admin' && <><div className="nav-caption nav-caption-secondary">ACCOUNTING</div><button type="button" className={`nav ${activeView==='invoices'?'active':''}`} onClick={()=>setActiveView('invoices')}><FileText size={18}/> Invoices <b>{invoices.filter(i=>i.status==='needs_review').length}</b></button></>}<div className="local-tag"><i/> {user?.role === 'admin' ? 'ADMIN ACCESS' : 'LEAD ACCESS'}</div><div className="side-foot">Signed in as<br/>{user?.email}</div></aside>
-    <main><header><div className="crumb"><span>Workspace</span><ChevronRight size={14}/><b>{pageTitle}</b></div><label className="top-search"><Search size={17}/><input placeholder={activeView==='invoices'?'Search invoices, suppliers…':'Search leads, companies…'} value={searchValue} onChange={e=>{setSearchValue(e.target.value);if(activeView==='home'&&e.target.value)openLeads('all')}}/></label><div className="top-actions"><span className="profile-chip"><b>{(user?.name || 'U').slice(0,2).toUpperCase()}</b><span>{user?.role === 'admin' ? 'Admin' : 'Lead'}</span></span><button type="button" className="signout-button" onClick={signOut}><LogOut size={15}/> Sign out</button></div></header><div className="dashboard-scroll" ref={dashboardScrollRef}>
+    <main><header><div className="crumb"><span>Workspace</span><ChevronRight size={14}/><b>{pageTitle}</b></div><label className="top-search"><Search size={17}/><input placeholder={activeView==='invoices'?'Search invoices, suppliers…':'Search leads, companies…'} value={searchValue} onChange={e=>{setSearchValue(e.target.value);if(activeView==='home'&&e.target.value)openLeads('all')}}/></label><div className="top-actions"><div className="notification-wrap"><button type="button" className={`notification-trigger ${notificationOpen ? 'active' : ''}`} aria-label={`Notifications${notifications.filter(item => !item.read_at).length ? `, ${notifications.filter(item => !item.read_at).length} unread` : ''}`} aria-expanded={notificationOpen} onClick={() => setNotificationOpen(open => !open)}><Bell size={18}/>{notifications.some(item => !item.read_at) && <i>{notifications.filter(item => !item.read_at).length > 9 ? '9+' : notifications.filter(item => !item.read_at).length}</i>}</button>{notificationOpen && <section className="notification-popover"><div className="notification-popover-head"><div><b>Notifications</b><small>{notifications.filter(item => !item.read_at).length} unread</small></div><button type="button" onClick={() => void markAllNotificationsRead()} disabled={!notifications.some(item => !item.read_at)}>Mark all read</button></div><div className="notification-list">{notifications.length ? notifications.slice(0, 20).map(item => <button type="button" className={`notification-item ${item.read_at ? 'read' : 'unread'}`} key={item.id} onClick={() => void openNotification(item)}><span className={`notification-symbol ${item.category}`}><Bell size={14}/></span><span><b>{item.title}</b><small>{item.message}</small><time>{new Date(item.created_at).toLocaleString()}</time></span></button>) : <p className="notification-empty">You’re all caught up.</p>}</div><form className="notification-prefs" onSubmit={saveNotificationPrefs}><b>WhatsApp preferences</b><label>Phone number<input type="tel" value={notificationPrefs.phone} maxLength={32} placeholder="+91 98765 43210" onChange={event => setNotificationPrefs(state => ({ ...state, phone: event.target.value }))}/></label><label className="notification-prefs-opt"><input type="checkbox" checked={notificationPrefs.whatsapp_opt_in} onChange={event => setNotificationPrefs(state => ({ ...state, whatsapp_opt_in: event.target.checked }))}/> I agree to receive account and workflow updates on WhatsApp.</label><div><button type="submit" disabled={prefsSaving}>{prefsSaving ? 'Saving…' : 'Save preference'}</button>{prefsMessage && <small role="status">{prefsMessage}</small>}</div></form>{user?.role === 'admin' && <div className="notification-channel-status"><span><MailCheck size={14}/> Email <b className={notificationChannels.email ? 'configured' : ''}>{notificationChannels.email ? 'Ready' : 'Not set up'}</b></span><span><MessageCircle size={14}/> WhatsApp <b className={notificationChannels.whatsapp ? 'configured' : ''}>{notificationChannels.whatsapp ? 'Ready' : 'Not set up'}</b></span></div>}</section>}</div><span className="profile-chip"><b>{(user?.name || 'U').slice(0,2).toUpperCase()}</b><span>{user?.role === 'admin' ? 'Admin' : 'Lead'}</span></span><button type="button" className="signout-button" onClick={signOut}><LogOut size={15}/> Sign out</button></div></header><div className="dashboard-scroll" ref={dashboardScrollRef}>
     {activeView === 'home' && <CrmHome leads={leads} invoiceCount={invoices.length} canViewAccounting={user?.role === 'admin'} onOpenLeads={openLeads} onOpenInvoices={()=>setActiveView('invoices')} onCreateLead={createLead}/>}
     {activeView === 'leads' && <LeadsPage isAdmin={user?.role === 'admin'} leads={leads} onLeadsChange={setLeads} createRequest={createLeadRequest} query={leadQuery} initialFilter={leadFilterIntent}/>}
     {activeView === 'invoices' && <>

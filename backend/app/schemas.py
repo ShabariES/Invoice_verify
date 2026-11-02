@@ -120,6 +120,8 @@ class RegisterRequest(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=10, max_length=256)
+    phone: str = Field(default="", max_length=32)
+    whatsapp_opt_in: bool = False
 
 
 class LoginRequest(BaseModel):
@@ -134,6 +136,22 @@ class UserOut(BaseModel):
     role: str
     approval_status: str = "approved"
     created_at: datetime | None = None
+
+
+class NotificationOut(BaseModel):
+    id: int
+    title: str
+    message: str
+    category: str
+    entity_type: str
+    entity_id: int | None
+    read_at: datetime | None
+    created_at: datetime
+
+
+class NotificationPreferencesRequest(BaseModel):
+    phone: str = Field(default="", max_length=32)
+    whatsapp_opt_in: bool = False
 
 
 class UserApprovalRequest(BaseModel):

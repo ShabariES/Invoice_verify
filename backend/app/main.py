@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from starlette.middleware.sessions import SessionMiddleware
@@ -16,11 +16,12 @@ from sqlalchemy import func, inspect, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.config import APP_ENV, BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD, FRONTEND_ORIGIN, GROQ_API_KEY, GROQ_MODEL, OCR_REVIEW_THRESHOLD, OCR_SERVICE_TOKEN, OCR_SERVICE_URL, SESSION_SECRET_KEY, UPLOAD_DIR
+from app.config import APP_ENV, BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD, FRONTEND_ORIGIN, GROQ_API_KEY, GROQ_MODEL, OCR_REVIEW_THRESHOLD, OCR_SERVICE_TOKEN, OCR_SERVICE_URL, SESSION_SECRET_KEY, UPLOAD_DIR, WHATSAPP_ADMIN_TO
 from app.chat_knowledge import CHAT_SYSTEM_PROMPT
 from app.database import Base, SessionLocal, engine, get_db
-from app.models import Invoice, InvoiceEvent, InvoiceLine, Lead, User
-from app.schemas import ChatRequest, InvoiceEventOut, InvoiceOut, InvoiceUpdate, LeadApprovalRequest, LeadCreate, LeadOut, LeadUpdate, LoginRequest, RegisterRequest, UserApprovalRequest, UserOut
+from app.models import Invoice, InvoiceEvent, InvoiceLine, Lead, Notification, User
+from app.notifications import channel_status, send_email_notification, send_whatsapp_notification
+from app.schemas import ChatRequest, InvoiceEventOut, InvoiceOut, InvoiceUpdate, LeadApprovalRequest, LeadCreate, LeadOut, LeadUpdate, LoginRequest, NotificationOut, NotificationPreferencesRequest, RegisterRequest, UserApprovalRequest, UserOut
 from app.security import hash_password, verify_password
 from app.storage import load_invoice_source, save_invoice_source
 
@@ -57,6 +58,14 @@ with engine.begin() as connection:
         "approval_reviewed_by": "VARCHAR(254) NOT NULL DEFAULT ''",
         "approval_reviewed_at": timestamp_type,
         "approval_rejection_reason": "TEXT NOT NULL DEFAULT ''",
+    }.items():
+        if name not in user_columns:
+            connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {ddl}"))
+user_columns = {column["name"] for column in inspect(engine).get_columns("users")}
+with engine.begin() as connection:
+    for name, ddl in {
+        "phone": "VARCHAR(32) NOT NULL DEFAULT ''",
+        "whatsapp_opt_in": "BOOLEAN NOT NULL DEFAULT FALSE",
     }.items():
         if name not in user_columns:
             connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {ddl}"))
@@ -100,6 +109,27 @@ def require_admin(user: User = Depends(require_user)) -> User:
     return user
 
 
+def queue_notification(db: Session, background_tasks: BackgroundTasks, recipients: list[User], title: str, message: str, category: str, entity_type: str = "", entity_id: int | None = None):
+    unique_users = {recipient.id: recipient for recipient in recipients}
+    channels = channel_status()
+    for recipient in unique_users.values():
+        db.add(Notification(recipient_user_id=recipient.id, title=title, message=message, category=category, entity_type=entity_type, entity_id=entity_id))
+        if channels["email"]:
+            background_tasks.add_task(send_email_notification, recipient.email, title, message)
+        if channels["whatsapp"] and recipient.whatsapp_opt_in and recipient.phone:
+            background_tasks.add_task(send_whatsapp_notification, recipient.phone, title, message)
+
+
+def queue_admin_notification(db: Session, background_tasks: BackgroundTasks, title: str, message: str, category: str, entity_type: str = "", entity_id: int | None = None):
+    admins = list(db.scalars(select(User).where(User.role == "admin", User.is_active.is_(True))).all())
+    queue_notification(db, background_tasks, admins, title, message, category, entity_type, entity_id)
+    if channel_status()["whatsapp"]:
+        opted_in_admin_numbers = {re.sub(r"\D", "", admin.phone) for admin in admins if admin.whatsapp_opt_in and admin.phone}
+        configured_numbers = {re.sub(r"\D", "", item.strip()) for item in WHATSAPP_ADMIN_TO.split(",") if item.strip()}
+        for phone in configured_numbers - opted_in_admin_numbers:
+            background_tasks.add_task(send_whatsapp_notification, phone, title, message)
+
+
 def public_user(user: User) -> UserOut:
     return UserOut(id=user.id, name=user.name, email=user.email, role=user.role, approval_status=user.approval_status, created_at=user.created_at)
 
@@ -122,13 +152,14 @@ elif APP_ENV == "production":
 
 
 @app.post("/api/auth/register", response_model=UserOut, status_code=201)
-def register(payload: RegisterRequest, request: Request, db: Session = Depends(get_db)):
+def register(payload: RegisterRequest, request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     email = payload.email.strip().lower()
     if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
         raise HTTPException(422, "Enter a valid email address")
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(409, "An account with this email already exists")
-    user = User(name=payload.name.strip(), email=email, password_hash=hash_password(payload.password), role="lead", approval_status="pending")
+    phone = re.sub(r"[^+0-9]", "", payload.phone)[:32]
+    user = User(name=payload.name.strip(), email=email, phone=phone, whatsapp_opt_in=bool(payload.whatsapp_opt_in and phone), password_hash=hash_password(payload.password), role="lead", approval_status="pending")
     db.add(user)
     try:
         db.commit()
@@ -136,6 +167,8 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
         db.rollback()
         raise HTTPException(409, "An account with this email already exists") from exc
     db.refresh(user)
+    queue_admin_notification(db, background_tasks, "New workspace access request", f"{user.name} requested Lead access.", "account", "user", user.id)
+    db.commit()
     return public_user(user)
 
 
@@ -163,6 +196,54 @@ def who_am_i(user: User = Depends(require_user)):
     return public_user(user)
 
 
+@app.get("/api/notifications/status")
+def notification_status(_user: User = Depends(require_user)):
+    return channel_status()
+
+
+@app.get("/api/auth/notification-preferences")
+def get_notification_preferences(user: User = Depends(require_user)):
+    return {"phone": user.phone, "whatsapp_opt_in": user.whatsapp_opt_in}
+
+
+@app.patch("/api/auth/notification-preferences")
+def update_notification_preferences(payload: NotificationPreferencesRequest, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    phone = re.sub(r"[^+0-9]", "", payload.phone)[:32]
+    if payload.whatsapp_opt_in and not phone:
+        raise HTTPException(422, "Enter a phone number before opting in to WhatsApp notifications")
+    user.phone = phone
+    user.whatsapp_opt_in = payload.whatsapp_opt_in
+    db.commit()
+    return {"phone": user.phone, "whatsapp_opt_in": user.whatsapp_opt_in}
+
+
+@app.get("/api/notifications", response_model=list[NotificationOut])
+def list_notifications(db: Session = Depends(get_db), user: User = Depends(require_user)):
+    return list(db.scalars(select(Notification).where(Notification.recipient_user_id == user.id).order_by(Notification.created_at.desc()).limit(50)).all())
+
+
+@app.get("/api/notifications/channels")
+def notification_channels(_admin: User = Depends(require_admin)):
+    return channel_status()
+
+
+@app.post("/api/notifications/{notification_id}/read", response_model=NotificationOut)
+def mark_notification_read(notification_id: int, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    notification = db.scalar(select(Notification).where(Notification.id == notification_id, Notification.recipient_user_id == user.id))
+    if not notification:
+        raise HTTPException(404, "Notification not found")
+    notification.read_at = notification.read_at or datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(notification)
+    return notification
+
+
+@app.post("/api/notifications/read-all", status_code=204)
+def mark_all_notifications_read(db: Session = Depends(get_db), user: User = Depends(require_user)):
+    db.query(Notification).filter(Notification.recipient_user_id == user.id, Notification.read_at.is_(None)).update({Notification.read_at: datetime.now(timezone.utc)}, synchronize_session=False)
+    db.commit()
+
+
 @app.get("/api/admin/access-requests", response_model=list[UserOut])
 def list_access_requests(db: Session = Depends(get_db), _admin: User = Depends(require_admin)):
     return list(db.scalars(select(User).where(User.role == "lead", User.approval_status == "pending").order_by(User.created_at.asc())).all())
@@ -174,7 +255,7 @@ def list_lead_accounts(db: Session = Depends(get_db), _admin: User = Depends(req
 
 
 @app.post("/api/admin/users/{user_id}/approval", response_model=UserOut)
-def decide_user_access(user_id: int, payload: UserApprovalRequest, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+def decide_user_access(user_id: int, payload: UserApprovalRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     user = db.get(User, user_id)
     if not user or user.role != "lead":
         raise HTTPException(404, "Pending Lead account not found")
@@ -185,6 +266,7 @@ def decide_user_access(user_id: int, payload: UserApprovalRequest, db: Session =
     user.approval_reviewed_at = datetime.now(timezone.utc)
     user.approval_rejection_reason = payload.reason.strip() if payload.action == "rejected" else ""
     user.is_active = payload.action == "approved"
+    queue_notification(db, background_tasks, [user], "Workspace access approved" if payload.action == "approved" else "Workspace access not approved", "Your Lead account is ready to use." if payload.action == "approved" else (payload.reason.strip() or "Contact an administrator if you think this was a mistake."), "account", "user", user.id)
     db.commit()
     db.refresh(user)
     return public_user(user)
@@ -279,7 +361,7 @@ def list_leads(q: str = "", status: str = "", db: Session = Depends(get_db), use
 
 
 @app.post("/api/leads", response_model=LeadOut, status_code=201)
-def create_lead(payload: LeadCreate, db: Session = Depends(get_db), user: User = Depends(require_user)):
+def create_lead(payload: LeadCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), user: User = Depends(require_user)):
     values = payload.model_dump()
     values["company_name"] = values["company_name"].strip()
     if not values["company_name"]:
@@ -288,6 +370,8 @@ def create_lead(payload: LeadCreate, db: Session = Depends(get_db), user: User =
     db.add(lead)
     db.commit()
     db.refresh(lead)
+    queue_admin_notification(db, background_tasks, "New CRM lead submitted", f"{lead.company_name} was added to the lead pipeline.", "lead", "lead", lead.id)
+    db.commit()
     return lead
 
 
@@ -315,7 +399,7 @@ def update_lead(lead_id: int, payload: LeadUpdate, db: Session = Depends(get_db)
 
 
 @app.post("/api/leads/{lead_id}/approval", response_model=LeadOut)
-def decide_lead(lead_id: int, payload: LeadApprovalRequest, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+def decide_lead(lead_id: int, payload: LeadApprovalRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     lead = db.get(Lead, lead_id)
     if not lead:
         raise HTTPException(404, "Lead not found")
@@ -325,6 +409,10 @@ def decide_lead(lead_id: int, payload: LeadApprovalRequest, db: Session = Depend
     lead.approved_by = admin.email if payload.action == "approved" else ""
     lead.approved_at = datetime.now(timezone.utc) if payload.action == "approved" else None
     lead.rejection_reason = payload.reason.strip() if payload.action == "rejected" else ""
+    if lead.owner_user_id:
+        owner = db.get(User, lead.owner_user_id)
+        if owner:
+            queue_notification(db, background_tasks, [owner], f"Lead {payload.action}", f"{lead.company_name} was {payload.action} by an Admin." + (f" Reason: {payload.reason.strip()}" if payload.action == "rejected" and payload.reason.strip() else ""), "lead", "lead", lead.id)
     db.commit()
     db.refresh(lead)
     return lead
@@ -408,7 +496,7 @@ async def extract_invoice(invoice_id: int, db: Session = Depends(get_db), _admin
 
 
 @app.post("/api/invoices/upload", response_model=InvoiceOut, status_code=201)
-async def upload_invoice(file: UploadFile = File(...), db: Session = Depends(get_db), _admin: User = Depends(require_admin)):
+async def upload_invoice(background_tasks: BackgroundTasks, file: UploadFile = File(...), db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     suffix = Path(file.filename or "invoice").suffix.lower()
     if suffix not in {".pdf", ".png", ".jpg", ".jpeg", ".webp"}:
         raise HTTPException(415, "Upload a PDF or image (PNG, JPG, WEBP)")
@@ -431,6 +519,7 @@ async def upload_invoice(file: UploadFile = File(...), db: Session = Depends(get
     db.commit()
     db.refresh(invoice)
     db.add(InvoiceEvent(invoice_id=invoice.id, event_type="uploaded", details=f"Source file received: {safe_name}"))
+    queue_admin_notification(db, background_tasks, "Invoice ready for review", f"A supplier invoice was uploaded to the review inbox ({safe_name}).", "invoice", "invoice", invoice.id)
     db.commit()
     return invoice
 
@@ -474,7 +563,7 @@ def update_invoice(invoice_id: int, payload: InvoiceUpdate, db: Session = Depend
 
 
 @app.post("/api/invoices/{invoice_id}/approve", response_model=InvoiceOut)
-def approve_invoice(invoice_id: int, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+def approve_invoice(invoice_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     invoice = db.get(Invoice, invoice_id)
     if not invoice:
         raise HTTPException(404, "Invoice not found")
@@ -495,6 +584,7 @@ def approve_invoice(invoice_id: int, db: Session = Depends(get_db), admin: User 
     invoice.reviewer = admin.name[:160]
     invoice.approved_at = datetime.now(timezone.utc)
     db.add(InvoiceEvent(invoice_id=invoice.id, event_type="approved", actor=invoice.reviewer, details="Human review completed; invoice approved in the local workspace."))
+    queue_admin_notification(db, background_tasks, "Invoice approved", f"Invoice {invoice.invoice_number} was approved by {admin.name}.", "invoice", "invoice", invoice.id)
     db.commit()
     db.refresh(invoice)
     return invoice

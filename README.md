@@ -39,6 +39,8 @@ Create the first Admin by setting `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_P
 
 Sessions use signed, HTTP-only cookies. The browser calls the API with credentials enabled, so set `FRONTEND_ORIGIN` to the exact frontend origin in a hosted environment. Public sign-up cannot select the Admin role. In production, store records in Neon by setting `DATABASE_URL` to the Neon PostgreSQL connection string; SQLite is only the local fallback. See [DEPLOYMENT.md](DEPLOYMENT.md) for Neon, GCS, Render, and Jenkins setup.
 
+The workspace header bell shows durable in-app notifications and refreshes every 30 seconds. Configure SMTP and Meta WhatsApp Cloud API values in `backend/.env` (or the API host’s secret environment) to enable outbound email and WhatsApp alerts. Users must provide a phone number and opt in before account notifications go to WhatsApp. Provider setup steps are in [DEPLOYMENT.md](DEPLOYMENT.md).
+
 ### Enable invoice OCR without containers
 
 OCR runs as a separate Python process. Install Tesseract OCR on the host and make sure the `tesseract` executable is on `PATH`. From the `backend` directory, install OCR dependencies in the same Python environment as the API and start the service:
