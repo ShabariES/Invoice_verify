@@ -54,9 +54,14 @@ Set these environment variables on the API service:
 | `SMTP_USERNAME`, `SMTP_PASSWORD` | SMTP credentials; store the password as a secret |
 | `SMTP_FROM_EMAIL` | Verified sender address |
 | `SMTP_USE_SSL` | `false` for STARTTLS on port `587`; `true` for implicit TLS, commonly port `465` |
+| `INBOUND_INVOICE_EMAIL` | Dedicated receiving address such as `invoices@yourdomain.com` |
+| `MAILGUN_WEBHOOK_SIGNING_KEY` | Mailgun account HTTP webhook signing key; store as a secret |
 | `WHATSAPP_ACCESS_TOKEN` | Meta WhatsApp Cloud API token; store as a secret |
 | `WHATSAPP_PHONE_NUMBER_ID` | Meta Cloud API sender phone-number ID |
 | `WHATSAPP_GRAPH_API_VERSION` | Graph API version supported by your Meta app |
+| `WHATSAPP_APP_SECRET` | Meta app secret used to verify incoming webhook signatures |
+| `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | Random token used when Meta verifies the webhook URL |
+| `WHATSAPP_INBOUND_NUMBER` | Human-readable business number shown to workspace users |
 | `WHATSAPP_TEMPLATE_NAME` | Approved Utility template with one body placeholder (`{{1}}`) |
 | `WHATSAPP_TEMPLATE_LANGUAGE` | Template language code, e.g. `en_US` |
 | `WHATSAPP_ADMIN_TO` | Optional comma-separated Admin notification destinations in international format |
@@ -65,16 +70,18 @@ Generate `SESSION_SECRET_KEY` and `OCR_SERVICE_TOKEN` separately. Do not reuse t
 
 ### Email, WhatsApp, and in-app notifications
 
-The app records notifications in the database and shows them from the bell in the workspace header. New workspace access requests and CRM lead submissions notify Admins; approval decisions notify the Lead; invoice upload and approval actions notify Admins. Email uses SMTP. WhatsApp uses Meta’s Cloud API template messages; only accounts that enter a phone number and check the WhatsApp opt-in receive those account-specific messages. Admin WhatsApp destinations are explicitly configured with `WHATSAPP_ADMIN_TO`.
+The app records notifications in the database and shows them from the bell in the workspace header. New workspace access requests and CRM lead submissions notify Admins; approval decisions notify the Lead; invoice upload and approval actions notify Admins. Email uses SMTP for outbound notifications. WhatsApp uses Meta’s Cloud API template messages for outbound notifications; only accounts that enter a phone number and check the WhatsApp opt-in receive those account-specific messages. Admin WhatsApp destinations are explicitly configured with `WHATSAPP_ADMIN_TO`.
 
 1. Choose an SMTP provider, create app-specific SMTP credentials, and configure the `SMTP_*` values on the API service. For Gmail, use an app password with SMTP AUTH rather than a normal account password.
 2. In Meta Business/Developer tools, configure WhatsApp Cloud API, add a sending number, create and get approval for a Utility template whose body has a single `{{1}}` placeholder, and create a long-lived access token. Set the `WHATSAPP_*` API values in the API service. Meta’s [template message API](https://whatsapp.github.io/WhatsApp-Nodejs-SDK/api-reference/messages/template/) uses the configured template name, language, and body parameter.
 3. Locally, add these values to `backend/.env`; in Render, add them to the API service Environment settings. Restart/redeploy the API after changing them. Keep tokens and SMTP passwords out of Git and the frontend.
-4. Sign in as Admin and open the notification bell. Its channel status shows whether email and WhatsApp settings are present. Send a test by creating a test account request; verify the in-app item and email/WhatsApp delivery before using real contact data.
+4. For invoice intake by email, configure a Mailgun receiving domain and its MX records. Set `INBOUND_INVOICE_EMAIL` to the exact receiving address and `MAILGUN_WEBHOOK_SIGNING_KEY` to the account HTTP webhook signing key. In Mailgun Routes, match that exact recipient and forward to `https://<api-service>.onrender.com/api/inbound/email/mailgun`. Use the multipart route-forward action so attachments and the signed timestamp/token/signature fields reach the app. Publish SPF and DKIM for Lead sender domains; the API accepts mail only when Mailgun verifies SPF or aligned DKIM and the envelope sender exactly matches an approved Lead account email. Each PDF or image must be 15 MB or less.
+5. For invoice intake by WhatsApp, configure the WhatsApp Business Cloud API webhook callback as `https://<api-service>.onrender.com/api/inbound/whatsapp`, set the verify token to `WHATSAPP_WEBHOOK_VERIFY_TOKEN`, subscribe to the `messages` field, and set `WHATSAPP_APP_SECRET` to the Meta app secret. Set the existing Graph API access token and phone-number ID so the API can retrieve media. Set `WHATSAPP_INBOUND_NUMBER` for display. Approved Leads must save their WhatsApp number under the workspace notification preferences; invoice attachments from that exact number are stored in that Lead account. PDF, PNG, JPG, and WEBP files up to 15 MB are accepted.
+6. Sign in as Admin and open the notification bell. It shows inbound/outbound channel configuration. Test with a registered approved Lead email and WhatsApp number, and verify the draft appears only in that account while Admin can review it. Inbound webhook retries are deduplicated by provider message ID and exact file content.
 
 In-app notifications are available for signed-in users even when external providers are not configured. Provider delivery runs after the app saves its notification. Configure provider secrets only on the backend.
 
-SMTP and WhatsApp sends currently use FastAPI background tasks and are best-effort: in-app notifications are persisted, but external delivery failures are logged and are not retried. For high-volume or delivery-critical production use, add a durable outbox/worker, retry policy, and provider delivery-status webhooks. This integration sends event notifications; it does not ingest or reply to inbound email or WhatsApp conversations.
+SMTP and WhatsApp outbound sends currently use FastAPI background tasks and are best-effort: in-app notifications are persisted, but external delivery failures are logged and are not retried. Inbound providers retry failed webhook responses and message IDs are deduplicated; file downloads still run during webhook handling. For high-volume or delivery-critical production use, move inbound downloads and notifications to a durable queue/outbox with retry and dead-letter handling.
 
 ### OCR private web service
 

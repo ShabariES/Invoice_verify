@@ -39,7 +39,7 @@ Create the first Admin by setting `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_P
 
 Sessions use signed, HTTP-only cookies. The browser calls the API with credentials enabled, so set `FRONTEND_ORIGIN` to the exact frontend origin in a hosted environment. Public sign-up cannot select the Admin role. In production, store records in Neon by setting `DATABASE_URL` to the Neon PostgreSQL connection string; SQLite is only the local fallback. See [DEPLOYMENT.md](DEPLOYMENT.md) for Neon, GCS, Render, and Jenkins setup.
 
-The workspace header bell shows durable in-app notifications and refreshes every 30 seconds. Configure SMTP and Meta WhatsApp Cloud API values in `backend/.env` (or the API host’s secret environment) to enable outbound email and WhatsApp alerts. Users must provide a phone number and opt in before account notifications go to WhatsApp. Provider setup steps are in [DEPLOYMENT.md](DEPLOYMENT.md).
+The workspace header bell shows durable in-app notifications and refreshes every 30 seconds. Configure SMTP and Meta WhatsApp Cloud API values in `backend/.env` (or the API host’s secret environment) to enable outbound email and WhatsApp alerts. Users must provide a phone number and opt in before account notifications go to WhatsApp. Invoice attachments can also be received from an approved Lead’s authenticated email address through a signed Mailgun inbound route, or from the Lead’s saved WhatsApp number through a signed Meta Cloud API webhook. See [DEPLOYMENT.md](DEPLOYMENT.md) for provider setup and required secrets.
 
 ### Enable invoice OCR without containers
 
@@ -61,7 +61,7 @@ Do not open `frontend/index.html` directly from File Explorer. Its TypeScript en
 3. Open the invoice and enter/correct supplier, invoice, tax, total, and line item fields.
 4. Approve only after checking the source file and reconciling amounts.
 
-WhatsApp/email intake, durable OCR queues, and accounting posting are not connected. OCR uses the host Python environment and requires Tesseract on the host. Local sign-in uses the same Lead/Admin authorization flow; production still requires the safeguards listed in `LIVE_READINESS.md`.
+Durable OCR queues and accounting posting are not connected. Email/WhatsApp invoice intake requires external provider setup and credentials before the inbound webhook endpoints become active. OCR uses the host Python environment and requires Tesseract on the host. Local sign-in uses the same Lead/Admin authorization flow; production still requires the safeguards listed in `LIVE_READINESS.md`.
 
 ## Jenkins
 

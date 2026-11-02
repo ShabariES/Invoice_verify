@@ -1,5 +1,6 @@
 import hashlib
 import asyncio
+import hmac
 import json
 import re
 import urllib.error
@@ -11,15 +12,17 @@ from pathlib import Path
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+from starlette.datastructures import UploadFile as StarletteUploadFile
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy import func, inspect, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.config import APP_ENV, BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD, FRONTEND_ORIGIN, GROQ_API_KEY, GROQ_MODEL, OCR_REVIEW_THRESHOLD, OCR_SERVICE_TOKEN, OCR_SERVICE_URL, SESSION_SECRET_KEY, UPLOAD_DIR, WHATSAPP_ADMIN_TO
+from app.config import APP_ENV, BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD, FRONTEND_ORIGIN, GROQ_API_KEY, GROQ_MODEL, INBOUND_INVOICE_EMAIL, MAILGUN_WEBHOOK_SIGNING_KEY, OCR_REVIEW_THRESHOLD, OCR_SERVICE_TOKEN, OCR_SERVICE_URL, SESSION_SECRET_KEY, UPLOAD_DIR, WHATSAPP_ADMIN_TO, WHATSAPP_WEBHOOK_VERIFY_TOKEN
 from app.chat_knowledge import CHAT_SYSTEM_PROMPT
 from app.database import Base, SessionLocal, engine, get_db
-from app.models import Invoice, InvoiceEvent, InvoiceLine, Lead, Notification, User
+from app.models import InboundReceipt, Invoice, InvoiceEvent, InvoiceLine, Lead, Notification, User
+from app.inbound import ALLOWED_EXTENSIONS, MAX_INVOICE_BYTES, authenticated_mail_headers, download_whatsapp_media, normalize_phone, parse_sender, verify_mailgun_signature, verify_whatsapp_signature
 from app.notifications import channel_status, send_email_notification, send_whatsapp_notification
 from app.schemas import ChatRequest, InvoiceEventOut, InvoiceOut, InvoiceUpdate, LeadApprovalRequest, LeadCreate, LeadOut, LeadUpdate, LoginRequest, NotificationOut, NotificationPreferencesRequest, RegisterRequest, UserApprovalRequest, UserOut
 from app.security import hash_password, verify_password
@@ -518,22 +521,34 @@ async def extract_invoice(invoice_id: int, db: Session = Depends(get_db), user: 
 
 @app.post("/api/invoices/upload", response_model=InvoiceOut, status_code=201)
 async def upload_invoice(background_tasks: BackgroundTasks, file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(require_invoice_access)):
-    suffix = Path(file.filename or "invoice").suffix.lower()
-    if suffix not in {".pdf", ".png", ".jpg", ".jpeg", ".webp"}:
+    data = await file.read(MAX_INVOICE_BYTES + 1)
+    return await create_invoice_from_upload(data, file.filename or "invoice", user, db, background_tasks)
+
+
+async def create_invoice_from_upload(data: bytes, filename: str, user: User, db: Session, background_tasks: BackgroundTasks, source_channel: str = "workspace") -> Invoice:
+    suffix = Path(filename).suffix.lower()
+    if suffix not in ALLOWED_EXTENSIONS:
         raise HTTPException(415, "Upload a PDF or image (PNG, JPG, WEBP)")
-    data = await file.read(15 * 1024 * 1024 + 1)
-    if not data or len(data) > 15 * 1024 * 1024:
+    if not data or len(data) > MAX_INVOICE_BYTES:
         raise HTTPException(413, "File must be between 1 byte and 15 MB")
+    valid_signature = (
+        (suffix == ".pdf" and data.startswith(b"%PDF-"))
+        or (suffix == ".png" and data.startswith(b"\x89PNG\r\n\x1a\n"))
+        or (suffix in {".jpg", ".jpeg"} and data.startswith(b"\xff\xd8\xff"))
+        or (suffix == ".webp" and len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP")
+    )
+    if not valid_signature:
+        raise HTTPException(415, "Attachment contents do not match a supported invoice file")
     digest = hashlib.sha256(data).hexdigest()
     duplicate_query = select(Invoice).where(Invoice.source_path == digest)
     if user.role != "admin":
         duplicate_query = duplicate_query.where(Invoice.owner_user_id == user.id)
     existing = db.scalar(duplicate_query)
     if existing:
-        db.add(InvoiceEvent(invoice_id=existing.id, event_type="duplicate_upload", details=f"Rejected repeated source file: {Path(file.filename or 'invoice').name[:255]}"))
+        db.add(InvoiceEvent(invoice_id=existing.id, event_type="duplicate_upload", details=f"Rejected repeated source file: {Path(filename).name[:255]}"))
         db.commit()
         raise HTTPException(409, f"This exact file was already uploaded as invoice {existing.id}")
-    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", Path(file.filename or "invoice").name)[:150]
+    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", Path(filename).name)[:150]
     try:
         await asyncio.to_thread(save_invoice_source, data, digest, safe_name)
     except Exception as exc:
@@ -542,10 +557,158 @@ async def upload_invoice(background_tasks: BackgroundTasks, file: UploadFile = F
     db.add(invoice)
     db.commit()
     db.refresh(invoice)
-    db.add(InvoiceEvent(invoice_id=invoice.id, event_type="uploaded", details=f"Source file received: {safe_name}"))
+    db.add(InvoiceEvent(invoice_id=invoice.id, event_type="uploaded", actor=user.email, details=f"Source file received via {source_channel}: {safe_name}"))
     queue_admin_notification(db, background_tasks, "Invoice ready for review", f"{user.name} ({user.email}) uploaded a supplier invoice ({safe_name}).", "invoice", "invoice", invoice.id)
+    if source_channel != "workspace":
+        queue_notification(db, background_tasks, [user], "Invoice received", f"{safe_name} was received through {source_channel} and added to your private review workspace.", "invoice", "invoice", invoice.id)
     db.commit()
     return invoice
+
+
+def claim_inbound_receipt(db: Session, provider: str, external_id: str, owner_user_id: int | None) -> tuple[InboundReceipt, bool]:
+    external_id = external_id[:255]
+    receipt = db.scalar(select(InboundReceipt).where(InboundReceipt.provider == provider, InboundReceipt.external_id == external_id))
+    if receipt:
+        if receipt.status in {"complete", "ignored"}:
+            return receipt, False
+        if receipt.status == "processing" and (datetime.now(timezone.utc) - receipt.created_at.replace(tzinfo=timezone.utc)).total_seconds() < 600:
+            return receipt, False
+        receipt.owner_user_id = owner_user_id
+        receipt.status = "processing"
+        db.commit()
+        return receipt, True
+    receipt = InboundReceipt(provider=provider, external_id=external_id[:255], owner_user_id=owner_user_id)
+    db.add(receipt)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        receipt = db.scalar(select(InboundReceipt).where(InboundReceipt.provider == provider, InboundReceipt.external_id == external_id[:255]))
+        if receipt and receipt.status in {"complete", "ignored"}:
+            return receipt, False
+        if not receipt:
+            raise
+        receipt.status = "processing"
+        db.commit()
+    db.refresh(receipt)
+    return receipt, True
+
+
+@app.post("/api/inbound/email/mailgun")
+async def inbound_email_mailgun(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    if not MAILGUN_WEBHOOK_SIGNING_KEY or not INBOUND_INVOICE_EMAIL:
+        raise HTTPException(503, "Inbound email is not configured")
+    try:
+        if int(request.headers.get("content-length", "0")) > 25 * 1024 * 1024:
+            raise HTTPException(413, "Email message exceeds the 25 MB receive limit")
+    except ValueError:
+        raise HTTPException(400, "Invalid content length")
+    form = await request.form()
+    if not verify_mailgun_signature(str(form.get("timestamp", "")), str(form.get("token", "")), str(form.get("signature", ""))):
+        raise HTTPException(406, "Invalid or expired email provider signature")
+    sender = parse_sender(str(form.get("sender") or form.get("from") or ""))
+    if not authenticated_mail_headers(form.get("message-headers"), sender):
+        raise HTTPException(406, "Email sender authentication failed")
+    recipients = {address.lower().strip(".,>") for address in re.findall(r"[^\s,<>;]+@[^\s,<>;]+", str(form.get("recipient") or form.get("To") or ""))}
+    if INBOUND_INVOICE_EMAIL.lower() not in recipients:
+        raise HTTPException(406, "Email was not addressed to the configured invoice mailbox")
+    user = db.scalar(select(User).where(User.email == sender, User.role == "lead", User.approval_status == "approved", User.is_active.is_(True)))
+    if not user:
+        logger.warning("Ignored inbound invoice email from an unapproved sender")
+        return {"accepted": False, "reason": "Sender is not an approved Lead account"}
+    message_id = str(form.get("Message-Id") or form.get("message-id") or form.get("Message-ID") or form.get("token") or "").strip(" <>\t\r\n")
+    if not message_id:
+        raise HTTPException(422, "Email message identifier is missing")
+    receipt, should_process = claim_inbound_receipt(db, "mailgun", message_id, user.id)
+    if not should_process:
+        return {"accepted": True, "duplicate_delivery": True, "invoice_ids": json.loads(receipt.invoice_ids or "[]")}
+    created_ids: list[int] = []
+    try:
+        attachments = [(key, value) for key, value in form.multi_items() if key.startswith("attachment-") and isinstance(value, StarletteUploadFile)]
+        for _key, attachment in attachments:
+            data = await attachment.read(MAX_INVOICE_BYTES + 1)
+            try:
+                invoice = await create_invoice_from_upload(data, attachment.filename or "invoice", user, db, background_tasks, "email")
+                created_ids.append(invoice.id)
+            except HTTPException as exc:
+                if exc.status_code not in {409, 413, 415}:
+                    raise
+                logger.info("Skipped inbound email attachment (%s)", exc.status_code)
+        receipt.invoice_ids = json.dumps(created_ids)
+        receipt.status = "complete" if created_ids else "ignored"
+        db.commit()
+        return {"accepted": bool(created_ids), "invoice_ids": created_ids, "skipped_attachments": len(attachments) - len(created_ids)}
+    except Exception:
+        db.rollback()
+        receipt = db.get(InboundReceipt, receipt.id)
+        if receipt:
+            receipt.status = "failed"
+            db.commit()
+        raise
+
+
+@app.get("/api/inbound/whatsapp")
+def verify_whatsapp_webhook(request: Request):
+    query = request.query_params
+    if (query.get("hub.mode") == "subscribe" and WHATSAPP_WEBHOOK_VERIFY_TOKEN and hmac.compare_digest(query.get("hub.verify_token", ""), WHATSAPP_WEBHOOK_VERIFY_TOKEN)):
+        return Response(content=query.get("hub.challenge", ""), media_type="text/plain")
+    raise HTTPException(403, "WhatsApp webhook verification failed")
+
+
+@app.post("/api/inbound/whatsapp")
+async def inbound_whatsapp(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    body = await request.body()
+    if not verify_whatsapp_signature(body, request.headers.get("X-Hub-Signature-256")):
+        raise HTTPException(401, "Invalid WhatsApp webhook signature")
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(400, "Invalid WhatsApp webhook payload") from exc
+    processed = []
+    for entry in payload.get("entry", []):
+        for change in entry.get("changes", []):
+            for message in (change.get("value") or {}).get("messages", []):
+                media_type = message.get("type")
+                if media_type not in {"document", "image"}:
+                    continue
+                sender_phone = normalize_phone(message.get("from"))
+                leads = db.scalars(select(User).where(User.role == "lead", User.approval_status == "approved", User.is_active.is_(True))).all()
+                owner = next((candidate for candidate in leads if normalize_phone(candidate.phone) == sender_phone and 8 <= len(sender_phone) <= 15), None)
+                if not owner:
+                    logger.warning("Ignored WhatsApp invoice from an unapproved or unmatched number")
+                    continue
+                external_id = str(message.get("id") or "")
+                media = message.get(media_type) or {}
+                media_id = str(media.get("id") or "")
+                if not external_id or not media_id:
+                    continue
+                receipt, should_process = claim_inbound_receipt(db, "whatsapp", external_id, owner.id)
+                if not should_process:
+                    processed.append({"duplicate_delivery": True, "invoice_ids": json.loads(receipt.invoice_ids or "[]")})
+                    continue
+                try:
+                    data, content_type = await asyncio.to_thread(download_whatsapp_media, media_id)
+                    filename = str(media.get("filename") or "")
+                    if not filename:
+                        extension = {"application/pdf": ".pdf", "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}.get(content_type, "")
+                        filename = f"whatsapp-{external_id[-18:]}{extension}"
+                    invoice = await create_invoice_from_upload(data, filename, owner, db, background_tasks, "WhatsApp")
+                    receipt = db.get(InboundReceipt, receipt.id)
+                    receipt.invoice_ids = json.dumps([invoice.id])
+                    receipt.status = "complete"
+                    db.commit()
+                    processed.append({"invoice_ids": [invoice.id]})
+                except (HTTPException, urllib.error.URLError, TimeoutError, ValueError, RuntimeError, json.JSONDecodeError) as exc:
+                    receipt = db.get(InboundReceipt, receipt.id)
+                    if receipt:
+                        receipt.status = "failed" if not isinstance(exc, HTTPException) or exc.status_code >= 500 else "ignored"
+                        db.commit()
+                    if isinstance(exc, (urllib.error.URLError, TimeoutError, RuntimeError)):
+                        raise HTTPException(503, "WhatsApp media download failed; retry the delivery") from exc
+                    if isinstance(exc, HTTPException) and exc.status_code not in {409, 413, 415}:
+                        raise
+                    logger.info("Skipped or failed WhatsApp invoice attachment (%s)", type(exc).__name__)
+    return {"received": True, "messages": processed}
 
 
 @app.patch("/api/invoices/{invoice_id}", response_model=InvoiceOut)

@@ -14,9 +14,14 @@ from app.config import (
     SMTP_PORT,
     SMTP_USE_SSL,
     SMTP_USERNAME,
+    MAILGUN_WEBHOOK_SIGNING_KEY,
+    INBOUND_INVOICE_EMAIL,
     WHATSAPP_ACCESS_TOKEN,
+    WHATSAPP_APP_SECRET,
     WHATSAPP_GRAPH_API_VERSION,
     WHATSAPP_PHONE_NUMBER_ID,
+    WHATSAPP_WEBHOOK_VERIFY_TOKEN,
+    WHATSAPP_INBOUND_NUMBER,
     WHATSAPP_TEMPLATE_LANGUAGE,
     WHATSAPP_TEMPLATE_NAME,
 )
@@ -24,11 +29,15 @@ from app.config import (
 logger = logging.getLogger(__name__)
 
 
-def channel_status() -> dict[str, bool]:
+def channel_status() -> dict[str, bool | str]:
     return {
         "in_app": True,
         "email": bool(SMTP_HOST and SMTP_FROM_EMAIL),
         "whatsapp": bool(WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_TEMPLATE_NAME),
+        "email_inbound": bool(MAILGUN_WEBHOOK_SIGNING_KEY and INBOUND_INVOICE_EMAIL),
+        "email_inbound_address": INBOUND_INVOICE_EMAIL,
+        "whatsapp_inbound": bool(WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_APP_SECRET and WHATSAPP_WEBHOOK_VERIFY_TOKEN),
+        "whatsapp_inbound_number": WHATSAPP_INBOUND_NUMBER,
     }
 
 
