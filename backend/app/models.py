@@ -1,0 +1,90 @@
+from datetime import date, datetime, timezone
+from decimal import Decimal
+
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.database import Base
+
+
+class Invoice(Base):
+    __tablename__ = "invoices"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    invoice_number: Mapped[str] = mapped_column(String(120), default="")
+    invoice_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    supplier_name: Mapped[str] = mapped_column(String(240), default="Needs review")
+    supplier_gstin: Mapped[str] = mapped_column(String(20), default="")
+    currency: Mapped[str] = mapped_column(String(3), default="INR", server_default="INR")
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    tax_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    total: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    source_path: Mapped[str] = mapped_column(Text, default="")
+    source_name: Mapped[str] = mapped_column(String(255), default="")
+    ocr_status: Mapped[str] = mapped_column(String(24), default="not_run", server_default="not_run")
+    ocr_provider: Mapped[str] = mapped_column(String(40), default="", server_default="")
+    ocr_confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)
+    ocr_text: Mapped[str] = mapped_column(Text, default="", server_default="")
+    status: Mapped[str] = mapped_column(String(32), default="needs_review", index=True)
+    reviewer: Mapped[str] = mapped_column(String(160), default="")
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    lines: Mapped[list["InvoiceLine"]] = relationship(back_populates="invoice", cascade="all, delete-orphan")
+
+
+class InvoiceLine(Base):
+    __tablename__ = "invoice_lines"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id", ondelete="CASCADE"))
+    description: Mapped[str] = mapped_column(Text, default="")
+    quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=1)
+    rate: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    invoice: Mapped[Invoice] = relationship(back_populates="lines")
+
+
+class InvoiceEvent(Base):
+    """Append-only record of material actions in the local invoice workflow."""
+    __tablename__ = "invoice_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id", ondelete="CASCADE"), index=True)
+    event_type: Mapped[str] = mapped_column(String(40), index=True)
+    actor: Mapped[str] = mapped_column(String(160), default="local user")
+    details: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+    invoice: Mapped[Invoice] = relationship()
+
+
+class Lead(Base):
+    __tablename__ = "leads"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_name: Mapped[str] = mapped_column(String(240), index=True)
+    contact_name: Mapped[str] = mapped_column(String(160), default="")
+    email: Mapped[str] = mapped_column(String(254), default="")
+    phone: Mapped[str] = mapped_column(String(40), default="")
+    source: Mapped[str] = mapped_column(String(80), default="Website")
+    industry: Mapped[str] = mapped_column(String(120), default="")
+    estimated_value: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    status: Mapped[str] = mapped_column(String(32), default="new", index=True)
+    next_follow_up: Mapped[date | None] = mapped_column(Date, nullable=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    owner_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    approval_status: Mapped[str] = mapped_column(String(24), default="pending", server_default="pending", index=True)
+    approved_by: Mapped[str] = mapped_column(String(254), default="")
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejection_reason: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class User(Base):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(160))
+    email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(512))
+    role: Mapped[str] = mapped_column(String(24), default="lead", server_default="lead")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
