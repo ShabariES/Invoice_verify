@@ -32,6 +32,7 @@ if "currency" not in {column["name"] for column in inspect(engine).get_columns("
 invoice_columns = {column["name"] for column in inspect(engine).get_columns("invoices")}
 with engine.begin() as connection:
     for name, ddl in {
+        "owner_user_id": "INTEGER",
         "ocr_status": "VARCHAR(24) NOT NULL DEFAULT 'not_run'",
         "ocr_provider": "VARCHAR(40) NOT NULL DEFAULT ''",
         "ocr_confidence": "NUMERIC(5,4)",
@@ -39,6 +40,7 @@ with engine.begin() as connection:
     }.items():
         if name not in invoice_columns:
             connection.execute(text(f"ALTER TABLE invoices ADD COLUMN {name} {ddl}"))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_invoices_owner_user_id ON invoices (owner_user_id)"))
 lead_columns = {column["name"] for column in inspect(engine).get_columns("leads")}
 timestamp_type = "TIMESTAMP WITH TIME ZONE" if engine.dialect.name == "postgresql" else "DATETIME"
 with engine.begin() as connection:
@@ -113,6 +115,12 @@ def require_invoice_access(user: User = Depends(require_user)) -> User:
     if user.role not in {"admin", "lead"}:
         raise HTTPException(403, "Approved workspace access is required")
     return user
+
+
+def ensure_invoice_access(invoice: Invoice, user: User) -> None:
+    # Return 404 for another account's invoice to avoid confirming its existence.
+    if user.role != "admin" and invoice.owner_user_id != user.id:
+        raise HTTPException(404, "Invoice not found")
 
 
 def queue_notification(db: Session, background_tasks: BackgroundTasks, recipients: list[User], title: str, message: str, category: str, entity_type: str = "", entity_id: int | None = None):
@@ -349,8 +357,11 @@ def health():
 
 
 @app.get("/api/invoices", response_model=list[InvoiceOut])
-def list_invoices(db: Session = Depends(get_db), _user: User = Depends(require_invoice_access)):
-    return list(db.scalars(select(Invoice).order_by(Invoice.created_at.desc())).all())
+def list_invoices(db: Session = Depends(get_db), user: User = Depends(require_invoice_access)):
+    statement = select(Invoice)
+    if user.role != "admin":
+        statement = statement.where(Invoice.owner_user_id == user.id)
+    return list(db.scalars(statement.order_by(Invoice.created_at.desc())).all())
 
 
 @app.get("/api/leads", response_model=list[LeadOut])
@@ -425,27 +436,31 @@ def decide_lead(lead_id: int, payload: LeadApprovalRequest, background_tasks: Ba
 
 
 @app.get("/api/invoices/{invoice_id}", response_model=InvoiceOut)
-def get_invoice(invoice_id: int, db: Session = Depends(get_db), _user: User = Depends(require_invoice_access)):
+def get_invoice(invoice_id: int, db: Session = Depends(get_db), user: User = Depends(require_invoice_access)):
     invoice = db.get(Invoice, invoice_id)
     if not invoice:
         raise HTTPException(404, "Invoice not found")
+    ensure_invoice_access(invoice, user)
     return invoice
 
 
 @app.get("/api/invoices/{invoice_id}/events", response_model=list[InvoiceEventOut])
-def invoice_events(invoice_id: int, db: Session = Depends(get_db), _user: User = Depends(require_invoice_access)):
-    if not db.get(Invoice, invoice_id):
+def invoice_events(invoice_id: int, db: Session = Depends(get_db), user: User = Depends(require_invoice_access)):
+    invoice = db.get(Invoice, invoice_id)
+    if not invoice:
         raise HTTPException(404, "Invoice not found")
+    ensure_invoice_access(invoice, user)
     return list(db.scalars(select(InvoiceEvent).where(InvoiceEvent.invoice_id == invoice_id).order_by(InvoiceEvent.created_at.desc())).all())
 
 
 @app.post("/api/invoices/{invoice_id}/extract")
-async def extract_invoice(invoice_id: int, db: Session = Depends(get_db), _user: User = Depends(require_invoice_access)):
+async def extract_invoice(invoice_id: int, db: Session = Depends(get_db), user: User = Depends(require_invoice_access)):
     if not OCR_SERVICE_URL:
         raise HTTPException(503, "OCR service is not configured. Set OCR_SERVICE_URL to enable document reading.")
     invoice = db.get(Invoice, invoice_id)
     if not invoice:
         raise HTTPException(404, "Invoice not found")
+    ensure_invoice_access(invoice, user)
     if invoice.status != "needs_review":
         raise HTTPException(409, "Only invoices awaiting review can be processed")
     source_data = await asyncio.to_thread(load_invoice_source, invoice.source_path, invoice.source_name)
@@ -510,7 +525,10 @@ async def upload_invoice(background_tasks: BackgroundTasks, file: UploadFile = F
     if not data or len(data) > 15 * 1024 * 1024:
         raise HTTPException(413, "File must be between 1 byte and 15 MB")
     digest = hashlib.sha256(data).hexdigest()
-    existing = db.scalar(select(Invoice).where(Invoice.source_path == digest))
+    duplicate_query = select(Invoice).where(Invoice.source_path == digest)
+    if user.role != "admin":
+        duplicate_query = duplicate_query.where(Invoice.owner_user_id == user.id)
+    existing = db.scalar(duplicate_query)
     if existing:
         db.add(InvoiceEvent(invoice_id=existing.id, event_type="duplicate_upload", details=f"Rejected repeated source file: {Path(file.filename or 'invoice').name[:255]}"))
         db.commit()
@@ -520,21 +538,22 @@ async def upload_invoice(background_tasks: BackgroundTasks, file: UploadFile = F
         await asyncio.to_thread(save_invoice_source, data, digest, safe_name)
     except Exception as exc:
         raise HTTPException(502, "Could not store the invoice source file") from exc
-    invoice = Invoice(source_path=digest, source_name=safe_name, status="needs_review")
+    invoice = Invoice(source_path=digest, source_name=safe_name, status="needs_review", owner_user_id=user.id)
     db.add(invoice)
     db.commit()
     db.refresh(invoice)
     db.add(InvoiceEvent(invoice_id=invoice.id, event_type="uploaded", details=f"Source file received: {safe_name}"))
-    queue_admin_notification(db, background_tasks, "Invoice ready for review", f"A supplier invoice was uploaded to the review inbox ({safe_name}).", "invoice", "invoice", invoice.id)
+    queue_admin_notification(db, background_tasks, "Invoice ready for review", f"{user.name} ({user.email}) uploaded a supplier invoice ({safe_name}).", "invoice", "invoice", invoice.id)
     db.commit()
     return invoice
 
 
 @app.patch("/api/invoices/{invoice_id}", response_model=InvoiceOut)
-def update_invoice(invoice_id: int, payload: InvoiceUpdate, db: Session = Depends(get_db), _user: User = Depends(require_invoice_access)):
+def update_invoice(invoice_id: int, payload: InvoiceUpdate, db: Session = Depends(get_db), user: User = Depends(require_invoice_access)):
     invoice = db.get(Invoice, invoice_id)
     if not invoice:
         raise HTTPException(404, "Invoice not found")
+    ensure_invoice_access(invoice, user)
     if invoice.status != "needs_review":
         raise HTTPException(409, "Only invoices awaiting review can be edited")
     if payload.lines:
@@ -550,11 +569,14 @@ def update_invoice(invoice_id: int, payload: InvoiceUpdate, db: Session = Depend
     invoice.supplier_gstin = invoice.supplier_gstin.strip().upper()
     invoice.invoice_number = invoice.invoice_number.strip()
     if invoice.supplier_gstin and invoice.invoice_number:
-        duplicate = db.scalar(select(Invoice).where(
+        duplicate_query = select(Invoice).where(
             Invoice.id != invoice.id,
             Invoice.supplier_gstin == invoice.supplier_gstin,
             func.lower(Invoice.invoice_number) == invoice.invoice_number.lower(),
-        ))
+        )
+        if user.role != "admin":
+            duplicate_query = duplicate_query.where(Invoice.owner_user_id == user.id)
+        duplicate = db.scalar(duplicate_query)
         if duplicate:
             db.rollback()
             raise HTTPException(409, f"Possible duplicate of invoice {duplicate.id}")
@@ -597,10 +619,11 @@ def approve_invoice(invoice_id: int, background_tasks: BackgroundTasks, db: Sess
 
 
 @app.get("/api/files/{invoice_id}")
-def invoice_file(invoice_id: int, db: Session = Depends(get_db), _user: User = Depends(require_invoice_access)):
+def invoice_file(invoice_id: int, db: Session = Depends(get_db), user: User = Depends(require_invoice_access)):
     invoice = db.get(Invoice, invoice_id)
     if not invoice:
         raise HTTPException(404, "Invoice not found")
+    ensure_invoice_access(invoice, user)
     source_data = load_invoice_source(invoice.source_path, invoice.source_name)
     if source_data is None:
         raise HTTPException(404, "Invoice source file not found in configured storage")

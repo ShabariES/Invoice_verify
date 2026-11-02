@@ -33,7 +33,7 @@ Open the URL Vite prints (usually `http://localhost:5173`). API docs: `http://lo
 
 ### Accounts and roles
 
-Sign-up submits a **Lead** account access request. The account remains pending and cannot sign in until an **Admin** approves it. Admins review requests under **Leads → Lead accounts**; rejected accounts remain blocked. After approval, a Lead can manage their own CRM leads and use the invoice workspace to upload, read, and edit invoice drafts. Only an Admin can give final invoice approval or approve/reject CRM lead submissions. All approved users currently share the same company workspace and invoice records.
+Sign-up submits a **Lead** account access request. The account remains pending and cannot sign in until an **Admin** approves it. Admins review requests under **Leads → Lead accounts**; rejected accounts remain blocked. After approval, a Lead can manage their own CRM leads and use a private invoice workspace to upload, read, and edit invoice drafts. Invoice lists, source files, OCR, events, edits, and duplicate checks are scoped to the signed-in Lead account. Admins can review invoices across all accounts; only Admins can give final invoice approval or approve/reject CRM lead submissions. Existing invoices without an owner stay visible to Admins only.
 
 Create the first Admin by setting `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` in `backend/.env` before starting the API. Use a password with at least 12 characters. The bootstrap runs once; changing those environment values later does not reset the existing account password. Set a persistent random `SESSION_SECRET_KEY` as well. In production set `APP_ENV=production`; the API refuses to start without these production values.
 

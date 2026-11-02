@@ -10,6 +10,9 @@ from app.database import Base
 class Invoice(Base):
     __tablename__ = "invoices"
     id: Mapped[int] = mapped_column(primary_key=True)
+    # One approved Lead account is one isolated invoice workspace. Legacy rows
+    # remain unassigned and are visible only to Admins.
+    owner_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     invoice_number: Mapped[str] = mapped_column(String(120), default="")
     invoice_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     supplier_name: Mapped[str] = mapped_column(String(240), default="Needs review")

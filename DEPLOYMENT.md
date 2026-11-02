@@ -126,12 +126,12 @@ The Jenkins controller must be publicly reachable for GitHub webhooks. If it is 
 
 1. Open `https://<api-service>.onrender.com/health` and confirm it returns `{"status":"ok"}`.
 2. Sign in with the bootstrap Admin account. In **Leads → Lead accounts**, approve or reject a test Lead account.
-3. Create a Lead account. Confirm the account is pending and cannot sign in until the Admin approves it. After approval, confirm it can create/edit only its own CRM leads and can upload, read, and edit invoice drafts.
-4. Confirm a Lead cannot perform final invoice approval, while an Admin can review/approve invoices and lead submissions.
+3. Create two Lead accounts. Confirm each account is pending and cannot sign in until approved. After approval, upload an invoice as each Lead. Confirm each sees and can read/edit only its own invoice and source file; OCR and invoice events must also be inaccessible across accounts. Identical file or invoice numbers uploaded in different Lead accounts should not be treated as cross-account duplicates.
+4. Confirm Admin can see both accounts' invoices and review/approve them, while a Lead cannot perform final invoice approval or access another Lead's invoice by changing the ID in an API URL. Existing unassigned invoices should appear only to Admin.
 5. Upload a non-sensitive test invoice. Confirm it appears in the private bucket, can be opened through the authenticated API, and OCR returns text/confidence. Delete the test invoice and its object when finished.
 
 ## Current limitations
 
-This adds basic Lead/Admin authorization and manual Lead-account access approval, but does not yet include email verification, password reset, MFA, rate limiting, user deactivation tooling, or tenant/workspace isolation. The initial Admin password is bootstrapped once; changing Render’s bootstrap environment variables does not reset an existing user. Do not use this pilot with customer financial records until these controls, retention, backups, migrations, and recovery have been reviewed.
+This adds basic Lead/Admin authorization and manual Lead-account access approval, with invoice data isolated per Lead account. It does not yet include email verification, password reset, MFA, rate limiting, user deactivation tooling, or shared multi-user company workspaces. The initial Admin password is bootstrapped once; changing Render’s bootstrap environment variables does not reset an existing user. Do not use this pilot with customer financial records until these controls, retention, backups, migrations, and recovery have been reviewed.
 
 Local SQLite records and files are not copied to Render by deployment. Start with a clean hosted database/bucket or arrange a reviewed migration separately.
