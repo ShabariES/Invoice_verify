@@ -3,7 +3,7 @@ import { ArrowRight, Check, Eye, EyeOff, FileCheck2, LockKeyhole, Mail, Phone, R
 import { API, apiFetch } from './api'
 
 type AuthMode = 'signup' | 'signin'
-export type AuthUser = { id: number; name: string; email: string; role: 'lead' | 'admin'; approval_status?: 'pending' | 'approved' | 'rejected' }
+export type AuthUser = { id: number; name: string; company_name?: string; email: string; role: 'lead' | 'admin'; approval_status?: 'pending' | 'approved' | 'rejected' }
 
 export default function AuthScreen({ onEnter, onBack, initialMode = 'signup' }: { onEnter: (user: AuthUser) => void; onBack?: () => void; initialMode?: AuthMode }) {
   const [mode, setMode] = useState<AuthMode>(initialMode)
@@ -18,7 +18,7 @@ export default function AuthScreen({ onEnter, onBack, initialMode = 'signup' }: 
     const formElement = event.currentTarget
     const form = new FormData(formElement)
     const body = mode === 'signup'
-      ? { name: String(form.get('name') || ''), email: String(form.get('email') || ''), password: String(form.get('password') || ''), phone: String(form.get('phone') || ''), whatsapp_opt_in: form.get('whatsapp_opt_in') === 'on' }
+      ? { name: String(form.get('name') || ''), company_name: String(form.get('company_name') || ''), email: String(form.get('email') || ''), password: String(form.get('password') || ''), phone: String(form.get('phone') || ''), whatsapp_opt_in: form.get('whatsapp_opt_in') === 'on' }
       : { email: String(form.get('email') || ''), password: String(form.get('password') || '') }
     try {
       const response = await apiFetch(`${API}/api/auth/${mode === 'signup' ? 'register' : 'login'}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -60,6 +60,7 @@ export default function AuthScreen({ onEnter, onBack, initialMode = 'signup' }: 
         <div className="auth-heading"><span className="form-brand"><ReceiptText size={18}/> <b>TECHJAYS</b><i/> INVOICE DESK</span><span className="form-eyebrow">{mode === 'signup' ? 'REQUEST WORKSPACE ACCESS' : 'CONTINUE YOUR WORKFLOW'}</span><h2>{mode === 'signup' ? <>Request access<br/>to your workspace.</> : <>Welcome back.</>}</h2><p>{mode === 'signup' ? 'An Admin will review your request before you can sign in.' : 'Sign in to continue your invoice review.'}</p></div>
         <form className="auth-form" onSubmit={submit}>
           {mode === 'signup' && <label>Your name<span className="auth-input"><UserRound size={17}/><input name="name" autoComplete="name" placeholder="e.g. Asha Mehta" minLength={1} maxLength={160} required/></span></label>}
+          {mode === 'signup' && <label>Company name<span className="auth-input"><ReceiptText size={17}/><input name="company_name" autoComplete="organization" placeholder="e.g. Acme Industries" minLength={1} maxLength={240} required/></span></label>}
           <label>Email address<span className="auth-input"><Mail size={17}/><input name="email" type="email" autoComplete="email" placeholder="you@company.com" required/></span></label>
           {mode === 'signup' && <label>Phone for WhatsApp updates <small>(optional)</small><span className="auth-input"><Phone size={17}/><input name="phone" type="tel" autoComplete="tel" placeholder="+91 98765 43210" maxLength={32}/></span></label>}
           {mode === 'signup' && <label className="whatsapp-opt-in"><input type="checkbox" name="whatsapp_opt_in"/> I agree to receive account and workflow notifications on WhatsApp.</label>}

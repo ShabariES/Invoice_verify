@@ -43,6 +43,8 @@ The workspace header bell shows durable in-app notifications and refreshes every
 
 From **Leads → Send message**, a signed-in user can enter a recipient email directly or choose a saved CRM contact, then send by SMTP email or WhatsApp. Email supports up to 10 PDF/image attachments (15 MB each, 18 MB total). WhatsApp requires a saved contact number, recorded consent, and a Meta-approved message template; this composer sends WhatsApp text only. The UI confirms when the provider accepts the send request; configure provider delivery webhooks if you need final delivered/read receipts.
 
+New workspace signups include a company name and remain pending until an Admin reviews them in **Leads → Lead accounts**. Approving a signup enables accounting access and adds that company to the CRM Leads list and total; rejecting it keeps the account disabled.
+
 ### Enable invoice OCR without containers
 
 OCR runs as a separate Python process. Install Tesseract OCR on the host and make sure the `tesseract` executable is on `PATH`. From the `backend` directory, install OCR dependencies in the same Python environment as the API and start the service:

@@ -126,6 +126,7 @@ class LeadOut(BaseModel):
 
 class RegisterRequest(BaseModel):
     name: str = Field(min_length=1, max_length=160)
+    company_name: str = Field(min_length=1, max_length=240)
     email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=10, max_length=256)
     phone: str = Field(default="", max_length=32)
@@ -138,8 +139,10 @@ class LoginRequest(BaseModel):
 
 
 class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: int
     name: str
+    company_name: str = ""
     email: str
     role: str
     approval_status: str = "approved"

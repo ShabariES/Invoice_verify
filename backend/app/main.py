@@ -71,6 +71,7 @@ with engine.begin() as connection:
 user_columns = {column["name"] for column in inspect(engine).get_columns("users")}
 with engine.begin() as connection:
     for name, ddl in {
+        "company_name": "VARCHAR(240) NOT NULL DEFAULT ''",
         "phone": "VARCHAR(32) NOT NULL DEFAULT ''",
         "whatsapp_opt_in": "BOOLEAN NOT NULL DEFAULT FALSE",
     }.items():
@@ -150,7 +151,7 @@ def queue_admin_notification(db: Session, background_tasks: BackgroundTasks, tit
 
 
 def public_user(user: User) -> UserOut:
-    return UserOut(id=user.id, name=user.name, email=user.email, role=user.role, approval_status=user.approval_status, created_at=user.created_at)
+    return UserOut(id=user.id, name=user.name, company_name=user.company_name, email=user.email, role=user.role, approval_status=user.approval_status, created_at=user.created_at)
 
 
 if BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD:
@@ -178,7 +179,10 @@ def register(payload: RegisterRequest, request: Request, background_tasks: Backg
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(409, "An account with this email already exists")
     phone = re.sub(r"[^+0-9]", "", payload.phone)[:32]
-    user = User(name=payload.name.strip(), email=email, phone=phone, whatsapp_opt_in=bool(payload.whatsapp_opt_in and phone), password_hash=hash_password(payload.password), role="lead", approval_status="pending")
+    company_name = payload.company_name.strip()
+    if not company_name:
+        raise HTTPException(422, "Enter your company name")
+    user = User(name=payload.name.strip(), company_name=company_name, email=email, phone=phone, whatsapp_opt_in=bool(payload.whatsapp_opt_in and phone), password_hash=hash_password(payload.password), role="lead", approval_status="pending")
     db.add(user)
     try:
         db.commit()
@@ -186,7 +190,7 @@ def register(payload: RegisterRequest, request: Request, background_tasks: Backg
         db.rollback()
         raise HTTPException(409, "An account with this email already exists") from exc
     db.refresh(user)
-    queue_admin_notification(db, background_tasks, "New workspace access request", f"{user.name} requested Lead access.", "account", "user", user.id)
+    queue_admin_notification(db, background_tasks, "New workspace access request", f"{user.name} at {user.company_name} ({user.email}) requested Lead access.", "account", "user", user.id)
     db.commit()
     return public_user(user)
 
@@ -285,6 +289,23 @@ def decide_user_access(user_id: int, payload: UserApprovalRequest, background_ta
     user.approval_reviewed_at = datetime.now(timezone.utc)
     user.approval_rejection_reason = payload.reason.strip() if payload.action == "rejected" else ""
     user.is_active = payload.action == "approved"
+    if payload.action == "approved":
+        signup_lead = db.scalar(select(Lead).where(Lead.owner_user_id == user.id, Lead.email == user.email))
+        if not signup_lead:
+            db.add(Lead(
+                company_name=user.company_name or user.name,
+                contact_name=user.name,
+                email=user.email,
+                phone=user.phone,
+                whatsapp_opt_in=user.whatsapp_opt_in,
+                source="Website signup",
+                status="new",
+                owner_user_id=user.id,
+                approval_status="approved",
+                approved_by=admin.email,
+                approved_at=datetime.now(timezone.utc),
+                notes="Created from an Admin-approved workspace signup.",
+            ))
     queue_notification(db, background_tasks, [user], "Workspace access approved" if payload.action == "approved" else "Workspace access not approved", "Your Lead account is ready to use." if payload.action == "approved" else (payload.reason.strip() or "Contact an administrator if you think this was a mistake."), "account", "user", user.id)
     db.commit()
     db.refresh(user)

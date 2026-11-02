@@ -70,7 +70,7 @@ export function CrmHome({ leads, invoiceCount, canViewAccounting, onOpenLeads, o
 }
 
 export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialFilter = 'all', isAdmin = false }: { leads: Lead[]; onLeadsChange: (leads: Lead[]) => void; createRequest: number; query: string; initialFilter?: string; isAdmin?: boolean }) {
-  const [leadAccounts, setLeadAccounts] = useState<Array<{ id: number; name: string; email: string; created_at?: string; approval_status: string }>>([])
+  const [leadAccounts, setLeadAccounts] = useState<Array<{ id: number; name: string; company_name?: string; email: string; created_at?: string; approval_status: string }>>([])
   const [modal, setModal] = useState(false)
   const [editing, setEditing] = useState<Lead | null>(null)
   const [statusFilter, setStatusFilter] = useState('all')
@@ -140,7 +140,17 @@ export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialF
       const data = await response.json()
       if (!response.ok) throw new Error(data.detail || 'Could not review this access request.')
       setLeadAccounts(items => items.map(item => item.id === userId ? data : item))
-      setApprovalMessage(action === 'approved' ? `${data.name} can now sign in.` : `${data.name}'s access request was rejected.`)
+      let leadsRefreshed = true
+      if (action === 'approved') {
+        try {
+          const leadsResponse = await apiFetch(`${API}/api/leads`)
+          if (leadsResponse.ok) onLeadsChange(await leadsResponse.json())
+          else leadsRefreshed = false
+        } catch {
+          leadsRefreshed = false
+        }
+      }
+      setApprovalMessage(action === 'approved' ? leadsRefreshed ? `${data.company_name || data.name} approved and added to Leads.` : `${data.company_name || data.name} approved. Refresh the Leads list to see the new CRM record.` : `${data.name}'s access request was rejected.`)
     } catch (cause) { setApprovalMessage(cause instanceof Error ? cause.message : 'Could not connect to the account service.') }
     finally { setApprovalBusy(null) }
   }
@@ -149,7 +159,7 @@ export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialF
   return <div className="crm-page leads-page">
     <section className="crm-page-heading"><div><span className="crm-eyebrow">{isAdmin ? 'ADMIN · CUSTOMER RELATIONSHIPS' : 'CUSTOMER RELATIONSHIPS'}</span><h1>{isAdmin ? 'Lead approvals' : 'Leads'}</h1><p>{isAdmin ? 'Review new submissions, approve qualified records, and manage the full lead pipeline.' : 'Capture prospects, understand their needs, and keep the next conversation on track.'}</p></div><div className="crm-heading-actions"><button className="crm-secondary" onClick={() => openMessage()}><Send size={15}/> Send message</button><button className="crm-primary" onClick={openNew}><Plus size={16}/> Add lead</button></div></section>
     {approvalMessage && <p className="lead-approval-notice" role="status">{approvalMessage}</p>}
-    {isAdmin && <section className="crm-panel access-requests-panel"><div className="crm-panel-head"><div><span className="crm-eyebrow">ACCOUNT SECURITY</span><h2>Lead accounts</h2><p>Approved signups remain listed here; pending accounts cannot sign in.</p></div><span className="access-request-count">{leadAccounts.length} total accounts</span></div><div className="lead-account-summary"><div><small>Total lead accounts</small><b>{leadAccounts.length}</b></div><div><small>Pending approval</small><b>{leadAccounts.filter(account => account.approval_status === 'pending').length}</b></div><div><small>Approved</small><b>{leadAccounts.filter(account => account.approval_status === 'approved').length}</b></div></div>{leadAccounts.length ? <div className="access-request-list">{leadAccounts.map(account => <article className="access-request-row" key={account.id}><span className="access-request-icon"><ShieldCheck size={17}/></span><span className="access-request-person"><b>{account.name}</b><small>{account.email}{account.created_at ? ` · Joined ${new Date(account.created_at).toLocaleDateString()}` : ''}</small></span>{account.approval_status === 'pending' ? <span className="lead-approval-actions"><button type="button" disabled={approvalBusy === account.id} onClick={() => void decideAccess(account.id, 'approved')}><Check size={13}/> Approve access</button><button type="button" disabled={approvalBusy === account.id} onClick={() => void decideAccess(account.id, 'rejected')}>Reject</button></span> : <span className={`lead-approval-state ${account.approval_status}`}>{account.approval_status}</span>}</article>)}</div> : <div className="access-request-empty"><Check size={15}/> No Lead accounts yet</div>}</section>}
+    {isAdmin && <section className="crm-panel access-requests-panel"><div className="crm-panel-head"><div><span className="crm-eyebrow">ACCOUNT SECURITY</span><h2>Lead accounts</h2><p>Review company signups here. Approved companies also appear in the Leads list.</p></div><span className="access-request-count">{leadAccounts.length} total accounts</span></div><div className="lead-account-summary"><div><small>Total lead accounts</small><b>{leadAccounts.length}</b></div><div><small>Pending approval</small><b>{leadAccounts.filter(account => account.approval_status === 'pending').length}</b></div><div><small>Approved</small><b>{leadAccounts.filter(account => account.approval_status === 'approved').length}</b></div></div>{leadAccounts.length ? <div className="access-request-list">{leadAccounts.map(account => <article className="access-request-row" key={account.id}><span className="access-request-icon"><ShieldCheck size={17}/></span><span className="access-request-person"><b>{account.company_name || account.name}</b><small>{account.name} · {account.email}{account.created_at ? ` · Joined ${new Date(account.created_at).toLocaleDateString()}` : ''}</small></span>{account.approval_status === 'pending' ? <span className="lead-approval-actions"><button type="button" disabled={approvalBusy === account.id} onClick={() => void decideAccess(account.id, 'approved')}><Check size={13}/> Approve access</button><button type="button" disabled={approvalBusy === account.id} onClick={() => void decideAccess(account.id, 'rejected')}>Reject</button></span> : <span className={`lead-approval-state ${account.approval_status}`}>{account.approval_status}</span>}</article>)}</div> : <div className="access-request-empty"><Check size={15}/> No Lead accounts yet</div>}</section>}
     {isAdmin && <button type="button" className={`admin-approval-summary ${approvalOnly ? 'selected' : ''}`} aria-pressed={approvalOnly} onClick={() => { setStatusFilter('all'); setSummaryFilter('all'); setApprovalOnly(!approvalOnly) }}><small>Awaiting admin review</small><b>{leads.filter(lead => lead.approval_status === 'pending').length}</b><span>{approvalOnly ? 'Showing leads awaiting approval.' : 'Click to review new lead submissions.'}</span></button>}
     <div className="lead-summary" aria-label="Lead summaries">
       <button type="button" className={summaryFilter === 'all' ? 'selected' : ''} aria-pressed={summaryFilter === 'all'} onClick={() => chooseSummary('all')}><small>Total leads</small><b>{leads.length}</b><span>Show every lead <ArrowRight size={12}/></span></button>

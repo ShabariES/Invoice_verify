@@ -101,6 +101,7 @@ class User(Base):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(160))
+    company_name: Mapped[str] = mapped_column(String(240), default="", server_default="")
     email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
     phone: Mapped[str] = mapped_column(String(32), default="", server_default="")
     whatsapp_opt_in: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
