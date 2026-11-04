@@ -16,13 +16,11 @@ CMD ["sh", "-c", "python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-1
 
 FROM python-base AS ocr
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      libgomp1 libglib2.0-0 libgl1 tesseract-ocr \
+      tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
-COPY backend/ocr_service/requirements.txt ./requirements.txt
-RUN pip install --upgrade pip \
-    && pip install paddlepaddle==3.2.0 -i https://www.paddlepaddle.org.cn/packages/stable/cpu/ \
-    && pip install -r requirements.txt
+COPY backend/ocr_service/requirements-docker.txt ./requirements.txt
+RUN pip install --upgrade pip && pip install -r requirements.txt
 COPY backend/ocr_service ./ocr_service
-ENV PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
+ENV OCR_NEURAL_FALLBACKS=False
 EXPOSE 10000
 CMD ["sh", "-c", "python -m uvicorn ocr_service.app:app --host 0.0.0.0 --port ${PORT:-10000}"]

@@ -16,7 +16,7 @@ docker buildx build --platform linux/amd64 --target ocr -t ghcr.io/<github-user>
 
 Keep the packages private unless you intentionally want anyone to be able to pull the application images. For private images, configure Render with registry credentials that have read access to the GHCR packages.
 
-Create the Render API web service from the API image. Attach a persistent disk mounted at `/var/data`, and set `UPLOAD_DIR=/var/data/uploads`. Set the normal API environment variables listed below. Create the OCR service from the OCR image as a private service, set `OCR_SERVICE_TOKEN` and `PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True` on it, and set the same token plus the OCR service's internal URL on the API service. Image-pull deployments do not automatically follow code pushes: rebuild and push both images, then redeploy the Render services after changes.
+Create the Render API web service from the API image. Attach a persistent disk mounted at `/var/data`, and set `UPLOAD_DIR=/var/data/uploads`. Set the normal API environment variables listed below. Create the OCR service from the OCR image as a private service and set `OCR_SERVICE_TOKEN` plus `OCR_NEURAL_FALLBACKS=False` on it. That small image uses Groq vision first and Tesseract as its local fallback; the regular local OCR install retains PaddleOCR and EasyOCR. Set the same token plus the OCR service's internal URL on the API service. Image-pull deployments do not automatically follow code pushes: rebuild and push both images, then redeploy the Render services after changes.
 
 ## 1. Create the Render services
 

@@ -37,6 +37,7 @@ TOKEN = os.getenv("OCR_SERVICE_TOKEN", "")
 OCR_MODEL = os.getenv("OCR_MODEL", "PP-OCRv5_server")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b").strip()
+OCR_NEURAL_FALLBACKS = os.getenv("OCR_NEURAL_FALLBACKS", "true").strip().lower() in {"1", "true", "yes"}
 app = FastAPI(title="Invoice OCR Service", version="3.1.0")
 _easyocr_reader = None
 _paddle_pipeline = None
@@ -556,6 +557,7 @@ def health():
         "groq_configured": bool(GROQ_API_KEY),
         "paddle_loaded": _paddle_pipeline is not None,
         "easyocr_loaded": _easyocr_reader is not None,
+        "neural_fallbacks_enabled": OCR_NEURAL_FALLBACKS,
         "tesseract_available": shutil.which(os.getenv("TESSERACT_CMD", "tesseract")) is not None,
     }
 
@@ -588,23 +590,24 @@ async def extract(file: UploadFile = File(...), x_ocr_service_token: str | None 
     # temporarily unavailable. The configured Qwen model remains the primary.
     if not chosen_text.strip() and not fields:
         fallback_used = True
-        try:
-            local_text, local_confidence = paddle_extract(data, suffix)
-            local_fields = extract_invoice_fields(local_text, local_confidence) if local_text.strip() else {}
-            if local_text.strip() and local_fields:
-                chosen_text, chosen_confidence, fields = local_text, local_confidence, local_fields
-                provider = "paddleocr-local-fallback"
-        except Exception as exc:
-            errors.append(f"PaddleOCR fallback: {type(exc).__name__}")
-        if not chosen_text.strip() and not fields:
+        if OCR_NEURAL_FALLBACKS:
             try:
-                local_text, local_confidence = easyocr_extract(data, suffix)
+                local_text, local_confidence = paddle_extract(data, suffix)
                 local_fields = extract_invoice_fields(local_text, local_confidence) if local_text.strip() else {}
-                if local_text.strip() or local_fields:
+                if local_text.strip() and local_fields:
                     chosen_text, chosen_confidence, fields = local_text, local_confidence, local_fields
-                    provider = "easyocr-local-fallback"
+                    provider = "paddleocr-local-fallback"
             except Exception as exc:
-                errors.append(f"EasyOCR fallback: {type(exc).__name__}")
+                errors.append(f"PaddleOCR fallback: {type(exc).__name__}")
+            if not chosen_text.strip() and not fields:
+                try:
+                    local_text, local_confidence = easyocr_extract(data, suffix)
+                    local_fields = extract_invoice_fields(local_text, local_confidence) if local_text.strip() else {}
+                    if local_text.strip() or local_fields:
+                        chosen_text, chosen_confidence, fields = local_text, local_confidence, local_fields
+                        provider = "easyocr-local-fallback"
+                except Exception as exc:
+                    errors.append(f"EasyOCR fallback: {type(exc).__name__}")
 
         # Tesseract is intentionally the last local fallback: it is lighter
         # than the neural models and is commonly installed on desktop hosts.
