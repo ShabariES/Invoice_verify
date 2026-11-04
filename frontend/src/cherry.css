@@ -12,7 +12,7 @@
   --line: #e7ddd4;
   --sunset-burnt: #6d0626;
   --sunset-orange: #8b2945;
-  --sunset-gold: #d8b8a8;
+  --sunset-gold: #7DA0CA;
   --sunset-cream: #f7f1ea;
   --sunset-espresso: #3b0718;
   --app-canvas: #f7f1ea;
@@ -43,7 +43,7 @@ body:has(.public-landing) { background:var(--ivory); }
 .landing-copy { color:#f7f1ea; }.landing-eyebrow { color:#f7f1eab5; }.landing-eyebrow i { background:#f7f1ea;box-shadow:0 0 0 4px #f7f1ea20; }
 .landing-copy h1 { color:#fffaf5; }.landing-copy h1 em { color:#e9c9bc; }.landing-copy>p { color:#f7f1ead1; }
 .landing-primary { border-color:#f7f1ea;background:#f7f1ea;color:#6d0626; }.landing-primary:hover { box-shadow:0 8px 22px #20000c40; }
-.landing-watch,.landing-proof,.landing-scroll-cue { color:#f7f1eacc; }.landing-watch>span { border-color:#f7f1ea99; }.landing-proof svg { color:#d8b8a8; }
+.landing-watch,.landing-proof,.landing-scroll-cue { color:#f7f1eacc; }.landing-watch>span { border-color:#f7f1ea99; }.landing-proof svg { color:#7DA0CA; }
 .landing-art .art-grid { background-image:linear-gradient(#6d062610 1px,transparent 1px),linear-gradient(90deg,#6d062610 1px,transparent 1px); }
 .art-orbit { border-color:#6d062622; }.ink-core { box-shadow:inset -19px -22px 37px #000,inset 10px 13px 22px #ffffff18,0 0 80px #6d06261c; }
 .art-topline,.art-caption { color:#6d06268a; }.art-topline i { background:#8caa91;box-shadow:0 0 8px #8caa91; }
@@ -93,7 +93,7 @@ body:has(.public-landing) { background:var(--ivory); }
 
 /* Accounting workspace and CRM */
 body:has(.layout) { background:#f7f1ea;color:#321c22; }
-.layout { --app-accent:#6d0626;--app-amber:#8b2945;--app-gold:#d8b8a8;min-height:100vh;background:#f7f1ea;color:#321c22; }
+.layout { --app-accent:#6d0626;--app-amber:#8b2945;--app-gold:#7DA0CA;min-height:100vh;background:#f7f1ea;color:#321c22; }
 .layout .side { border-color:#4e1328;background:linear-gradient(180deg,#4a0c20,#310817);color:#f2e5df;box-shadow:6px 0 24px #3b07181a; }
 .layout .logo>span { border-color:#ffffff5c;background:#f7f1ea;color:#6d0626;box-shadow:0 7px 18px #21020e40; }.layout .logo b { color:#fff7f1; }.layout .logo small,.layout .nav-caption,.layout .local-tag,.layout .side-foot { color:#d0aeb3; }
 .layout .nav { color:#e6ccd0; }.layout .nav svg { color:#d8b8b1; }.layout .nav:hover { border-color:#ffffff24;background:#ffffff0c;color:#fff; }

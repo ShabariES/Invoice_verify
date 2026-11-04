@@ -1,6 +1,6 @@
 # Invoice Desk — accounting CRM
 
-A local-first invoice review and CRM app. It accepts an invoice PDF or photo, creates a review draft, and supports lead tracking with a Lead/Admin approval workflow. SQLite and local files are the development defaults; configure PostgreSQL and a private GCS bucket for hosting. It does not post approved invoices to an external accounting system.
+A local-first invoice review and CRM app. It accepts an invoice PDF or photo, creates a review draft, and supports lead tracking with a Lead/Admin approval workflow. SQLite and local files are the development defaults; configure PostgreSQL and persistent file storage for hosting. It does not post approved invoices to an external accounting system.
 
 ## Requirements
 
@@ -47,14 +47,14 @@ New workspace signups include a company name and remain pending until an Admin r
 
 ### Enable invoice OCR without containers
 
-OCR runs as a separate Python process. Install Tesseract OCR on the host and make sure the `tesseract` executable is on `PATH`. From the `backend` directory, install OCR dependencies in the same Python environment as the API and start the service:
+OCR runs as a separate Python process. When configured, Groq Qwen vision is the primary recognizer for invoice PDFs and images. PaddleOCR PP-OCRv5 and EasyOCR are local fallbacks; Tesseract remains optional. From the `backend` directory, install OCR dependencies in the same Python environment as the API and start the service:
 
 ```powershell
 python -m pip install -r ocr_service/requirements.txt
 python -m uvicorn ocr_service.app:app --host 127.0.0.1 --port 8001
 ```
 
-Keep `OCR_SERVICE_URL=http://127.0.0.1:8001` in `backend/.env` and restart the API if you changed it. The API and OCR service must run on the same host when using this loopback URL. The first OCR request may take longer while PaddleOCR downloads its models. Check `http://localhost:8001/health` and `http://localhost:8000/ready` before using **Read with OCR**.
+Keep `OCR_SERVICE_URL=http://127.0.0.1:8001` in `backend/.env` and restart the API if you changed it. The API and OCR service must run on the same host when using this loopback URL. The first extraction can take longer while the model initializes or downloads weights. Check `http://localhost:8001/health` and `http://localhost:8002/ready` before using **Read with OCR** (the local frontend config points to API port 8002). OCR deskews and enhances camera photos, extracts labeled invoice-field suggestions, and copies them into the editable **Invoice details** fields. Verify each value against the source before saving. OCR does not save or approve an invoice automatically. Handwriting recognition can still be uncertain, especially for low-resolution or cropped photos.
 
 Do not open `frontend/index.html` directly from File Explorer. Its TypeScript entry point must be served by Vite; opening the HTML as `file://` causes the browser's CORS error. On Windows, double-click `Run TechJays.bat` to start Vite and open the correct local URL.
 
@@ -65,10 +65,12 @@ Do not open `frontend/index.html` directly from File Explorer. Its TypeScript en
 3. Open the invoice and enter/correct supplier, invoice, tax, total, and line item fields.
 4. Approve only after checking the source file and reconciling amounts.
 
-Durable OCR queues and accounting posting are not connected. Email/WhatsApp invoice intake requires external provider setup and credentials before the inbound webhook endpoints become active. OCR uses the host Python environment and requires Tesseract on the host. Local sign-in uses the same Lead/Admin authorization flow; production still requires the safeguards listed in `LIVE_READINESS.md`.
+Durable OCR queues and accounting posting are not connected. Email/WhatsApp invoice intake requires external provider setup and credentials before the inbound webhook endpoints become active. Local fallback OCR uses the host Python environment; Tesseract is optional. Local sign-in uses the same Lead/Admin authorization flow; production still requires the safeguards listed in `LIVE_READINESS.md`.
 
 ## Jenkins
 
-`Jenkinsfile` installs the API and OCR Python dependencies, checks that PaddleOCR and Tesseract are available on the Jenkins agent, builds the frontend, and invokes Render deploy hooks on successful `main` builds. Configure a Linux Jenkins agent with Python 3.11+, Node.js 20+, `tesseract-ocr`, and the GitHub/Credentials Binding plugins. Add Render deploy hooks in Jenkins credentials as described in [DEPLOYMENT.md](DEPLOYMENT.md). To serve OCR outside Render, run `python3 -m uvicorn ocr_service.app:app --host 127.0.0.1 --port 8001` from `backend`; the API must be on the same host or use an OCR service URL reachable from it.
+Groq powers both the project chatbot and invoice-image OCR. Set `GROQ_API_KEY` and `GROQ_MODEL=qwen/qwen3.8-27b` in the backend environment. Invoice images are sent to Groq for visual extraction; keep the key server-side and never put it in frontend code. The local OCR engines are fallback options if Groq is unavailable.
 
-For step-by-step GCP bucket, Render, and Jenkins webhook setup, see [DEPLOYMENT.md](DEPLOYMENT.md).
+`Jenkinsfile` installs the API and OCR Python dependencies, checks that PaddleOCR and EasyOCR are available on the Jenkins agent, builds the frontend, and invokes Render deploy hooks on successful `main` builds. Configure a Linux Jenkins agent with Python 3.11+, Node.js 20+, and the GitHub/Credentials Binding plugins. Add Render deploy hooks in Jenkins credentials as described in [DEPLOYMENT.md](DEPLOYMENT.md). To serve OCR outside Render, run `python3 -m uvicorn ocr_service.app:app --host 127.0.0.1 --port 8001` from `backend`; the API must be on the same host or use an OCR service URL reachable from it.
+
+For step-by-step Render and Jenkins setup, see [DEPLOYMENT.md](DEPLOYMENT.md).

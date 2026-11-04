@@ -28,9 +28,11 @@ PROJECT FACTS:
   and subtotal plus tax to the invoice total. Differences beyond one cent block
   approval.
 - OCR is not automatic on upload. A reviewer can click "Read with OCR" when the
-  OCR service is configured and running. PaddleOCR PP-StructureV3 is primary and
-  Tesseract is fallback. OCR returns text and confidence for human checking; it
-  does not automatically fill invoice fields or guarantee handwriting accuracy.
+  OCR service is running. The configured Groq Qwen vision model reads PDF pages
+  and images; PaddleOCR PP-OCRv5 and EasyOCR are local fallbacks. Recognized
+  invoice fields are copied into editable details for reviewer verification.
+  Handwriting can still be uncertain, and uploaded documents are sent to Groq
+  when the cloud vision provider is configured.
 - Invoice approval is always a human action. The current source file is stored
   on the local backend disk; private cloud storage is still to be configured.
 - No ERP/accounting-system posting integration is connected.

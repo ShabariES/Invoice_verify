@@ -8,5 +8,6 @@ import './neon.css'
 import './landing.css'
 import './professional.css'
 import './cherry.css'
+import './blue-workspace.css'
 
 createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>)

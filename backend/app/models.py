@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -20,6 +20,10 @@ class Invoice(Base):
     currency: Mapped[str] = mapped_column(String(3), default="INR", server_default="INR")
     subtotal: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     tax_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    tax_calculation: Mapped[str] = mapped_column(String(24), default="amount", server_default="amount")
+    tax_rate: Mapped[Decimal] = mapped_column(Numeric(8, 3), default=0, server_default="0")
+    interest_period_months: Mapped[int] = mapped_column(Integer, default=12, server_default="12")
+    compounding_frequency: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     total: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     source_path: Mapped[str] = mapped_column(Text, default="")
     source_name: Mapped[str] = mapped_column(String(255), default="")
@@ -27,6 +31,7 @@ class Invoice(Base):
     ocr_provider: Mapped[str] = mapped_column(String(40), default="", server_default="")
     ocr_confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)
     ocr_text: Mapped[str] = mapped_column(Text, default="", server_default="")
+    ocr_fields: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
     status: Mapped[str] = mapped_column(String(32), default="needs_review", index=True)
     reviewer: Mapped[str] = mapped_column(String(160), default="")
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -24,7 +24,7 @@ pipeline {
         dir('backend') {
           sh '''
             command -v tesseract >/dev/null 2>&1 || { echo "tesseract-ocr must be installed on the Jenkins agent"; exit 1; }
-            python3 -c "import paddle, paddleocr, pytesseract, fitz; print('PaddleOCR runtime dependencies are available')"
+            python3 -c "import paddle, paddleocr, easyocr, torch, pytesseract, fitz; print('OCR runtime dependencies are available')"
           '''
         }
       }

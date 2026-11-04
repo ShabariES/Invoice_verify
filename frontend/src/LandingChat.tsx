@@ -15,8 +15,8 @@ const projectGuide = [
     answer: 'The review screen calculates line-item subtotal plus tax and compares it with the entered invoice total. It also checks quantity × rate and line totals against subtotal. You can use the calculated total, but still verify the source before approval.',
   },
   {
-    topics: ['ocr', 'paddle', 'tesseract', 'handwriting', 'read', 'extract'],
-    answer: 'The project has a PaddleOCR document-reading service with a Tesseract fallback. OCR needs to be configured and running; it returns text and confidence for a person to verify. It does not guarantee correct field extraction, and handwriting must be tested with real samples.',
+    topics: ['ocr', 'paddle', 'easyocr', 'handwriting', 'read', 'extract'],
+    answer: 'When you choose “Read with OCR,” the configured Groq Qwen vision model reads the invoice PDF or image and places field suggestions into editable invoice details. PaddleOCR and EasyOCR are local fallbacks if Groq is unavailable. Handwriting can be uncertain, so verify each value against the source before saving or approving.',
   },
   {
     topics: ['lead', 'crm', 'pipeline', 'customer', 'prospect', 'follow', 'sales'],

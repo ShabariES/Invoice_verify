@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -21,6 +21,10 @@ class InvoiceUpdate(BaseModel):
     currency: str = "INR"
     subtotal: Decimal = Field(default=Decimal("0"), ge=0)
     tax_amount: Decimal = Field(default=Decimal("0"), ge=0)
+    tax_calculation: Literal["amount", "percentage", "simple_interest", "compound_interest"] = "amount"
+    tax_rate: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+    interest_period_months: int = Field(default=12, ge=1, le=120)
+    compounding_frequency: Literal[1, 2, 4, 12] = 1
     total: Decimal = Field(default=Decimal("0"), ge=0)
     lines: list[LineData] = []
 
@@ -35,6 +39,10 @@ class InvoiceOut(BaseModel):
     currency: str
     subtotal: Decimal
     tax_amount: Decimal
+    tax_calculation: str = "amount"
+    tax_rate: Decimal
+    interest_period_months: int
+    compounding_frequency: int
     total: Decimal
     source_path: str
     source_name: str
@@ -42,6 +50,7 @@ class InvoiceOut(BaseModel):
     ocr_provider: str
     ocr_confidence: Decimal | None
     ocr_text: str
+    ocr_fields: dict[str, Any] = Field(default_factory=dict)
     status: str
     reviewer: str
     approved_at: datetime | None

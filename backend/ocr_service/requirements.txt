@@ -1,8 +1,11 @@
 fastapi==0.115.12
 uvicorn[standard]==0.34.0
 python-multipart==0.0.20
-paddleocr[all]>=3.2,<4
+python-dotenv==1.0.1
+paddleocr>=3.2,<4
 paddlepaddle==3.2.0
+easyocr==1.7.2
 pytesseract==0.3.13
 Pillow==11.1.0
 PyMuPDF==1.25.4
+opencv-python-headless>=4.10,<5

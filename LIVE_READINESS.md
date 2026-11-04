@@ -42,10 +42,10 @@ The product still has local-only assumptions that need to be replaced before a l
 
 - `DATABASE_URL`: managed PostgreSQL connection string.
 - `FRONTEND_ORIGIN`: exact production frontend origin (not a wildcard).
-- `UPLOAD_DIR`: local fallback only. Set `GCS_BUCKET_NAME`, `GCS_PROJECT_ID`, and `GCS_SERVICE_ACCOUNT_JSON` to use the private bucket in production.
+- `UPLOAD_DIR`: directory for uploaded invoice files. On Render, attach a persistent disk mounted at this path or files can be lost when the service restarts or redeploys.
 - `OCR_SERVICE_URL` and `OCR_SERVICE_TOKEN`: private OCR service endpoint and shared secret.
 - `OCR_REVIEW_THRESHOLD`: field/document confidence threshold after calibration on real invoices; the current default is conservative and is not a validated accuracy claim.
 - `GROQ_API_KEY` and `GROQ_MODEL`: set the Groq key only in the backend environment; the landing chat sends requests through the backend and never receives the key.
-- `SESSION_SECRET_KEY`, bootstrap Admin credentials, GCS service-account JSON, OCR service token, and Groq key: store as Render/Jenkins secrets, never in source control.
+- `SESSION_SECRET_KEY`, bootstrap Admin credentials, OCR service token, and Groq key: store as Render/Jenkins secrets, never in source control.
 
 The OCR code is a first integration slice, not a validated production workload. The repository does not include cloud credentials, a durable OCR or inbound-media queue, email verification/password recovery/MFA, multi-user organization membership, or versioned production database migrations. Follow `DEPLOYMENT.md` for the pilot configuration and review the remaining controls before importing customer financial records.

@@ -7,7 +7,7 @@ import re
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -41,6 +41,11 @@ with engine.begin() as connection:
         "ocr_provider": "VARCHAR(40) NOT NULL DEFAULT ''",
         "ocr_confidence": "NUMERIC(5,4)",
         "ocr_text": "TEXT NOT NULL DEFAULT ''",
+        "ocr_fields": "JSON NOT NULL DEFAULT '{}'",
+        "tax_calculation": "VARCHAR(24) NOT NULL DEFAULT 'amount'",
+        "tax_rate": "NUMERIC(8,3) NOT NULL DEFAULT 0",
+        "interest_period_months": "INTEGER NOT NULL DEFAULT 12",
+        "compounding_frequency": "INTEGER NOT NULL DEFAULT 1",
     }.items():
         if name not in invoice_columns:
             connection.execute(text(f"ALTER TABLE invoices ADD COLUMN {name} {ddl}"))
@@ -87,6 +92,29 @@ app.add_middleware(
     same_site="lax",
     https_only=APP_ENV == "production",
 )
+
+
+def calculated_tax_amount(base: Decimal, mode: str, rate: Decimal, period_months: int, frequency: int) -> Decimal:
+    """Calculate a direct percentage, simple interest, or compound interest charge."""
+    principal = max(Decimal("0"), base)
+    annual_rate = rate / Decimal("100")
+    years = Decimal(period_months) / Decimal("12")
+    if mode == "percentage":
+        amount = principal * annual_rate
+    elif mode == "simple_interest":
+        amount = principal * annual_rate * years
+    elif mode == "compound_interest":
+        compounds_per_year = Decimal(frequency)
+        periods = compounds_per_year * years
+        amount = principal * ((Decimal("1") + annual_rate / compounds_per_year) ** periods - Decimal("1"))
+    else:
+        return base.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    amount = amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if amount > Decimal("999999999999.99"):
+        raise HTTPException(422, "Calculated tax or interest exceeds the supported invoice amount")
+    return amount
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[FRONTEND_ORIGIN],
@@ -654,6 +682,7 @@ async def extract_invoice(invoice_id: int, db: Session = Depends(get_db), user: 
     invoice.ocr_provider = str(result.get("provider", "unknown"))[:40]
     invoice.ocr_confidence = Decimal(str(result.get("confidence", 0)))
     invoice.ocr_text = str(result.get("raw_text", ""))[:100_000]
+    invoice.ocr_fields = result.get("extracted_fields", {}) if isinstance(result.get("extracted_fields"), dict) else {}
     confidence = float(invoice.ocr_confidence or 0)
     needs_review = confidence < OCR_REVIEW_THRESHOLD or bool(result.get("low_confidence"))
     invoice.ocr_status = "complete" if invoice.ocr_text.strip() and not needs_review else "low_confidence"
@@ -664,7 +693,7 @@ async def extract_invoice(invoice_id: int, db: Session = Depends(get_db), user: 
     ))
     db.commit()
     db.refresh(invoice)
-    return {"invoice": InvoiceOut.model_validate(invoice), "confidence_threshold": OCR_REVIEW_THRESHOLD, "low_confidence": needs_review}
+    return {"invoice": InvoiceOut.model_validate(invoice), "confidence_threshold": OCR_REVIEW_THRESHOLD, "low_confidence": needs_review, "extracted_fields": invoice.ocr_fields}
 
 
 @app.post("/api/invoices/upload", response_model=InvoiceOut, status_code=201)
@@ -878,8 +907,12 @@ def update_invoice(invoice_id: int, payload: InvoiceUpdate, db: Session = Depend
                 raise HTTPException(422, f"Line {index}: quantity × rate must reconcile to amount")
     if payload.currency not in {"INR", "USD", "EUR", "GBP"}:
         raise HTTPException(422, "Choose a supported currency: INR, USD, EUR, GBP")
-    for key in ("invoice_number", "invoice_date", "supplier_name", "supplier_gstin", "currency", "subtotal", "tax_amount", "total"):
+    for key in ("invoice_number", "invoice_date", "supplier_name", "supplier_gstin", "currency", "subtotal", "tax_calculation", "tax_rate", "interest_period_months", "compounding_frequency", "total"):
         setattr(invoice, key, getattr(payload, key))
+    tax_base = sum((line.amount for line in payload.lines), Decimal("0")) if payload.lines else payload.subtotal
+    invoice.tax_amount = payload.tax_amount if payload.tax_calculation == "amount" else calculated_tax_amount(
+        tax_base, payload.tax_calculation, payload.tax_rate, payload.interest_period_months, payload.compounding_frequency
+    )
     invoice.lines.clear()
     invoice.lines.extend(InvoiceLine(**line.model_dump()) for line in payload.lines)
     invoice.supplier_gstin = invoice.supplier_gstin.strip().upper()
@@ -915,13 +948,15 @@ def approve_invoice(invoice_id: int, background_tasks: BackgroundTasks, db: Sess
         raise HTTPException(409, "Invoice is not awaiting review")
     if not invoice.invoice_number or not invoice.supplier_name.strip():
         raise HTTPException(422, "Enter supplier name and invoice number before approval")
-    if not invoice.lines:
-        raise HTTPException(422, "Add at least one line item before approval")
-    line_sum = sum((line.amount for line in invoice.lines), Decimal("0"))
-    if any(abs(line.quantity * line.rate - line.amount) > Decimal("0.01") for line in invoice.lines):
-        raise HTTPException(422, "Each line item quantity × rate must reconcile to its amount")
-    if abs(line_sum - invoice.subtotal) > Decimal("0.01"):
-        raise HTTPException(422, "Line item amounts must reconcile to subtotal")
+    # Some valid invoices (including handwritten summary invoices) provide
+    # only a subtotal/tax/total and no itemized lines. Approve those based on
+    # the invoice-level reconciliation; validate line arithmetic when present.
+    if invoice.lines:
+        line_sum = sum((line.amount for line in invoice.lines), Decimal("0"))
+        if any(abs(line.quantity * line.rate - line.amount) > Decimal("0.01") for line in invoice.lines):
+            raise HTTPException(422, "Each line item quantity × rate must reconcile to its amount")
+        if abs(line_sum - invoice.subtotal) > Decimal("0.01"):
+            raise HTTPException(422, "Line item amounts must reconcile to subtotal")
     if abs(invoice.subtotal + invoice.tax_amount - invoice.total) > Decimal("0.01"):
         raise HTTPException(422, "Subtotal plus tax must reconcile to invoice total")
     invoice.status = "approved"

@@ -45,16 +45,8 @@ export default function AuthScreen({ onEnter, onBack, initialMode = 'signup' }: 
   return <main className="auth-shell">
     <section className="auth-story">
       <div className="auth-brand"><span className="auth-brand-icon"><FileCheck2 size={20}/></span><span><b>TECHJAYS</b><small>INVOICE DESK</small></span></div>
-      <div className="story-copy"><span className="auth-eyebrow">SUPPLIER INVOICE WORKSPACE</span><h1>Invoices, made<br/>easy to review.</h1><p>Collect supplier documents, review the details, and approve with confidence.</p><div className="workflow-steps" aria-label="Invoice workflow"><div><span><Upload size={14}/></span><b>Upload</b></div><i/><div><span><ScanSearch size={14}/></span><b>Review</b></div><i/><div><span><Check size={14}/></span><b>Approve</b></div></div></div>
-      <div className="auth-value-panel" aria-label="Invoice review capabilities">
-        <div className="auth-value-heading"><span><ReceiptText size={18}/></span><div><small>INVOICE DESK</small><b>Review with the full context</b></div><em><i/> HUMAN REVIEW</em></div>
-        <div className="auth-value-list">
-          <article><span><FileCheck2 size={16}/></span><div><b>Keep the source close</b><p>Open the original document while checking invoice details.</p></div></article>
-          <article><span><ReceiptText size={16}/></span><div><b>Complete details before approval</b><p>Review the supplier, totals, tax, and line items together.</p></div></article>
-          <article><span><ShieldCheck size={16}/></span><div><b>Record a human decision</b><p>Approval requires a named reviewer, not an automatic pass.</p></div></article>
-        </div>
-        <div className="auth-value-foot"><Check size={14}/> Save a draft and return when the invoice is ready.</div>
-      </div>
+      <div className="story-copy"><span className="auth-eyebrow">ACCOUNTING, WITH THE FULL PICTURE</span><h1>Every invoice<br/>has a <em>clear story.</em></h1><p>See the original document, verified totals, and review status together in one focused workspace.</p></div>
+      <div className="auth-workspace-visual" aria-label="Illustration of an invoice review workspace"><div className="auth-visual-orbit orbit-one"/><div className="auth-visual-orbit orbit-two"/><article className="auth-invoice-sheet"><header><span><FileCheck2 size={16}/></span><b>INVOICE REVIEW</b><em>INV-2048</em></header><div className="invoice-paper-title"><small>ACME SUPPLY CO.</small><b>Tax invoice</b><span>03 Nov 2026 · #2048</span></div><div className="invoice-paper-lines"><i/><i/><i/><i/></div><div className="invoice-paper-items"><div><span>Consulting services</span><b>₹22,000</b></div><div><span>Tax · 13%</span><b>₹2,850</b></div></div><div className="invoice-paper-total"><span>Total due</span><b>₹24,850</b></div></article><div className="auth-float-card amount-check"><span><Check size={15}/></span><div><b>Amounts reconcile</b><small>Difference ₹0.00</small></div></div><div className="auth-float-card human-check"><span><ShieldCheck size={15}/></span><div><b>Human review required</b><small>Ready for approval</small></div></div><div className="auth-visual-caption"><i/> SOURCE DOCUMENT <span>DETAIL CHECKS</span><span>REVIEW</span></div></div>
       <div className="story-foot"><span className="foot-dot"/> LOCAL WORKSPACE · HUMAN REVIEW</div>
     </section>
 

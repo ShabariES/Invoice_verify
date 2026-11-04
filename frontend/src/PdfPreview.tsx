@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import 'react-pdf/dist/Page/AnnotationLayer.css'
 import 'react-pdf/dist/Page/TextLayer.css'
@@ -11,6 +11,20 @@ export default function PdfPreview({ fileUrl }: Props) {
   const [pageCount, setPageCount] = useState(0)
   const [pageNumber, setPageNumber] = useState(1)
   const [error, setError] = useState('')
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [pageWidth, setPageWidth] = useState(640)
+
+  useEffect(() => {
+    const element = scrollRef.current
+    if (!element) return
+    const observer = new ResizeObserver(([entry]) => setPageWidth(Math.max(320, Math.floor(entry.contentRect.width - 28))))
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0
+  }, [pageNumber, fileUrl])
 
   return <div className="pdf-preview">
     <div className="pdf-page-nav">
@@ -18,10 +32,10 @@ export default function PdfPreview({ fileUrl }: Props) {
       <span>Page {pageNumber} of {pageCount || '…'}</span>
       <button disabled={!pageCount || pageNumber >= pageCount} onClick={() => setPageNumber(page => Math.min(pageCount, page + 1))}>Next</button>
     </div>
-    <div className="pdf-page-scroll">
+    <div className="pdf-page-scroll" ref={scrollRef}>
       {error ? <div className="pdf-error">Could not render this PDF. Use “Open original” to view it.</div> :
         <Document file={{ url: fileUrl }} options={{ withCredentials: true }} onLoadSuccess={({ numPages }) => { setPageCount(numPages); setPageNumber(1); setError('') }} onLoadError={() => setError('PDF preview unavailable')} loading={<div className="pdf-message">Loading PDF pages…</div>}>
-          <Page pageNumber={pageNumber} width={380} renderTextLayer renderAnnotationLayer />
+          <Page pageNumber={pageNumber} width={pageWidth} renderTextLayer renderAnnotationLayer />
         </Document>}
     </div>
   </div>

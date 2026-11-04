@@ -1,18 +1,8 @@
-# GCP, Render, and Jenkins setup
+# Render and Jenkins setup
 
-This repository stores application records in PostgreSQL (use Neon for hosting) and invoice files in private Google Cloud Storage. When `GCS_BUCKET_NAME` is blank, local development continues to use `backend/uploads`. The deployment below uses Neon, a private GCS bucket, Render API/OCR services, and a static frontend.
+The app stores database records in PostgreSQL and invoice files in `UPLOAD_DIR`. Render deployments must mount a persistent disk at the upload directory or uploaded files can be lost on restart/redeploy. Keep invoice files private and serve them only through authenticated API routes.
 
-## 1. Create a private GCP bucket
-
-1. In Google Cloud Console, select or create the project you will use for this app. Enable billing and the **Cloud Storage API**.
-2. Open **Cloud Storage → Buckets → Create**. Pick a globally unique bucket name and a location close to your users and Render region. `asia-south1` is an example for users in India; select the location that meets your data-residency and latency needs.
-3. Choose **Standard** storage. Enable **Uniform bucket-level access** and keep **Public access prevention** enforced. Do not grant `allUsers` or `allAuthenticatedUsers` access.
-4. Create a service account for the application, for example `invoice-verify-render`. In the bucket’s **Permissions** page, grant that service account **Storage Object Admin** on this bucket only.
-5. Create a JSON key for this service account and store it securely. Render will need the key JSON as a secret environment value. Do not add it to this repository, Jenkins source, or a committed `.env` file. Rotate/delete the key if it is exposed.
-
-The backend stores invoice objects under `invoices/` and serves them through authenticated API routes. The bucket itself stays private.
-
-## 2. Create the Render services
+## 1. Create the Render services
 
 Connect the GitHub repository to Render and create the API, private OCR web service, and static site. Keep the Neon project and Render services in nearby regions to reduce database latency. The API and OCR service need a paid always-on plan for dependable use; Paddle model initialization is CPU and memory intensive. Check current Render plans and pricing before creating services.
 
@@ -21,7 +11,11 @@ Connect the GitHub repository to Render and create the API, private OCR web serv
 1. In the [Neon Console](https://console.neon.tech/), create a project, choose a region close to your Render services, and create/select the application database and role.
 2. Open the project’s **Connect** panel. Select the application database and role; copy the connection string. Use the pooled connection option for the Render API, and keep the URL private. Neon’s project setup provides a PostgreSQL connection URI containing the database and role credentials. See [Neon project creation](https://neon.tech/docs/manage/projects) and [Neon connection strings](https://neon.tech/docs/connect/connect-from-any-app).
 3. In Render, set the API service `DATABASE_URL` to that Neon URL. Retain `sslmode=require` in the query parameters. The application uses PostgreSQL through psycopg; `DATABASE_URL` must be set in production. SQLite remains a local-development default only.
-4. Neon stores users, leads, invoices, line items, approvals, and invoice content hashes/metadata. The original invoice files remain in the private GCS bucket.
+4. Neon stores users, leads, invoices, line items, approvals, and invoice content hashes/metadata.
+
+### Persistent invoice files
+
+Attach a persistent disk to the API web service and set `UPLOAD_DIR` to its mount path (for example `/var/data/uploads`). The app writes uploaded files there. Without a persistent disk, the container filesystem is temporary and invoice files may disappear after a deploy or restart.
 
 ### API web service
 
@@ -42,9 +36,7 @@ Set these environment variables on the API service:
 | `SESSION_SECRET_KEY` | A newly generated random secret, at least 32 bytes |
 | `BOOTSTRAP_ADMIN_EMAIL` | Email for the first Admin account |
 | `BOOTSTRAP_ADMIN_PASSWORD` | New password with at least 12 characters |
-| `GCS_BUCKET_NAME` | Name of the private bucket |
-| `GCS_PROJECT_ID` | Google Cloud project ID |
-| `GCS_SERVICE_ACCOUNT_JSON` | Full service-account JSON key, stored as a secret |
+| `UPLOAD_DIR` | Persistent disk mount path for invoice files, e.g. `/var/data/uploads` |
 | `OCR_SERVICE_URL` | Internal address shown for the Render OCR service |
 | `OCR_SERVICE_TOKEN` | Long random secret shared only with the OCR service |
 | `OCR_REVIEW_THRESHOLD` | `0.95` to keep the current conservative default |
