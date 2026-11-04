@@ -19,6 +19,45 @@ function installInvoiceTrigger() {
   checkInvoiceMailbox();
 }
 
+// Run once from the editor to grant the script permission to send Gmail.
+function authorizeEmailSending() {
+  GmailApp.getAliases();
+}
+
+// Public web-app endpoint used by the Render API over HTTPS for outbound mail.
+// Access is protected by the shared OUTBOUND_TOKEN in the JSON request body.
+function doPost(e) {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const expectedToken = props.getProperty('OUTBOUND_TOKEN');
+    if (!expectedToken) return jsonResponse_({ sent: false, error: 'Sender is not configured' });
+    const payload = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    if (!payload.token || payload.token !== expectedToken) {
+      return jsonResponse_({ sent: false, error: 'Unauthorized' });
+    }
+    const recipient = String(payload.to || '').trim();
+    const subject = String(payload.subject || '').trim().slice(0, 180);
+    const body = String(payload.body || '');
+    if (!recipient || !subject) return jsonResponse_({ sent: false, error: 'Recipient and subject are required' });
+    const blobs = [];
+    (Array.isArray(payload.attachments) ? payload.attachments : []).slice(0, 10).forEach(function (item) {
+      if (!item || typeof item.data_base64 !== 'string') return;
+      const bytes = Utilities.base64Decode(item.data_base64);
+      if (bytes.length > MAX_ATTACHMENT_BYTES) throw new Error('Email attachment exceeds 15 MB');
+      blobs.push(Utilities.newBlob(bytes, item.content_type || 'application/octet-stream', item.filename || 'attachment'));
+    });
+    GmailApp.sendEmail(recipient, subject, body, { attachments: blobs });
+    return jsonResponse_({ sent: true });
+  } catch (error) {
+    console.error('Outbound Gmail send failed: ' + error);
+    return jsonResponse_({ sent: false, error: String(error).slice(0, 300) });
+  }
+}
+
+function jsonResponse_(data) {
+  return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
+}
+
 function checkInvoiceMailbox() {
   const props = PropertiesService.getScriptProperties();
   const apiUrl = props.getProperty('API_URL').replace(/\/$/, '') + '/api/inbound/email/apps-script';

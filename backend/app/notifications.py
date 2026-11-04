@@ -1,4 +1,5 @@
 import logging
+import base64
 import json
 import re
 import smtplib
@@ -17,6 +18,8 @@ from app.config import (
     MAILGUN_WEBHOOK_SIGNING_KEY,
     INBOUND_INVOICE_EMAIL,
     APPS_SCRIPT_INBOUND_TOKEN,
+    GMAIL_APPS_SCRIPT_URL,
+    GMAIL_APPS_SCRIPT_TOKEN,
     WHATSAPP_ACCESS_TOKEN,
     WHATSAPP_APP_SECRET,
     WHATSAPP_GRAPH_API_VERSION,
@@ -33,7 +36,7 @@ logger = logging.getLogger(__name__)
 def channel_status() -> dict[str, bool | str]:
     return {
         "in_app": True,
-        "email": bool(SMTP_HOST and SMTP_FROM_EMAIL),
+        "email": bool((GMAIL_APPS_SCRIPT_URL and GMAIL_APPS_SCRIPT_TOKEN) or (SMTP_HOST and SMTP_FROM_EMAIL)),
         "whatsapp": bool(WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_TEMPLATE_NAME),
         "whatsapp_manual": True,
         "email_inbound": bool((MAILGUN_WEBHOOK_SIGNING_KEY or APPS_SCRIPT_INBOUND_TOKEN) and INBOUND_INVOICE_EMAIL),
@@ -44,6 +47,33 @@ def channel_status() -> dict[str, bool | str]:
 
 
 def send_email_notification(recipient: str, subject: str, message: str, attachments: list[tuple[str, bytes, str]] | None = None) -> bool:
+    if GMAIL_APPS_SCRIPT_URL and GMAIL_APPS_SCRIPT_TOKEN:
+        payload = {
+            "token": GMAIL_APPS_SCRIPT_TOKEN,
+            "to": recipient,
+            "subject": subject[:180],
+            "body": f"{message}\n\nOpen TechJays Accounting CRM to review this notification.",
+            "attachments": [
+                {"filename": filename, "content_type": content_type, "data_base64": base64.b64encode(data).decode("ascii")}
+                for filename, data, content_type in (attachments or [])
+            ],
+        }
+        request = urllib.request.Request(
+            GMAIL_APPS_SCRIPT_URL,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                result = json.loads(response.read(64 * 1024).decode("utf-8"))
+            if result.get("sent") is True:
+                return True
+            logger.warning("Apps Script email sender did not accept the message")
+            return False
+        except (OSError, urllib.error.URLError, ValueError) as exc:
+            logger.warning("Apps Script email delivery failed (%s)", type(exc).__name__)
+            return False
     if not SMTP_HOST or not SMTP_FROM_EMAIL or not recipient:
         return False
     email = EmailMessage()
