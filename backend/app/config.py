@@ -8,6 +8,12 @@ load_dotenv()
 ROOT = Path(__file__).resolve().parents[1]
 APP_ENV = os.getenv("APP_ENV", "development").lower()
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL.removeprefix("postgres://")
+elif DATABASE_URL.startswith("postgresql://"):
+    # The backend installs psycopg v3, so explicitly select that SQLAlchemy driver
+    # for standard Neon connection strings (which use postgresql://).
+    DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL.removeprefix("postgresql://")
 if APP_ENV == "production" and not DATABASE_URL:
     raise RuntimeError("DATABASE_URL must point to the hosted PostgreSQL database in production")
 if not DATABASE_URL:

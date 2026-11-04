@@ -26,7 +26,7 @@ Connect the GitHub repository to Render and create the API, private OCR web serv
 
 1. In the [Neon Console](https://console.neon.tech/), create a project, choose a region close to your Render services, and create/select the application database and role.
 2. Open the project’s **Connect** panel. Select the application database and role; copy the connection string. Use the pooled connection option for the Render API, and keep the URL private. Neon’s project setup provides a PostgreSQL connection URI containing the database and role credentials. See [Neon project creation](https://neon.tech/docs/manage/projects) and [Neon connection strings](https://neon.tech/docs/connect/connect-from-any-app).
-3. In Render, set the API service `DATABASE_URL` to that Neon URL. Retain `sslmode=require` in the query parameters. The application uses PostgreSQL through psycopg; `DATABASE_URL` must be set in production. SQLite remains a local-development default only.
+3. In Render, set the API service `DATABASE_URL` to that Neon URL. Retain `sslmode=require` in the query parameters. The application uses PostgreSQL through psycopg and automatically adapts standard `postgres://` and `postgresql://` URLs to the installed psycopg 3 driver. `DATABASE_URL` must be set in production. SQLite remains a local-development default only.
 4. Neon stores users, leads, invoices, line items, approvals, and invoice content hashes/metadata.
 
 ### Persistent invoice files
