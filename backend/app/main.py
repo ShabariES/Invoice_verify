@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import asyncio
 import hmac
@@ -19,7 +20,7 @@ from sqlalchemy import func, inspect, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.config import ADMIN_WHATSAPP_PHONE, APP_ENV, BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD, FRONTEND_ORIGIN, GROQ_API_KEY, GROQ_MODEL, INBOUND_INVOICE_EMAIL, MAILGUN_WEBHOOK_SIGNING_KEY, OCR_REVIEW_THRESHOLD, OCR_SERVICE_TOKEN, OCR_SERVICE_URL, SESSION_SECRET_KEY, UPLOAD_DIR, WHATSAPP_ADMIN_TO, WHATSAPP_WEBHOOK_VERIFY_TOKEN
+from app.config import ADMIN_WHATSAPP_PHONE, APP_ENV, APPS_SCRIPT_INBOUND_TOKEN, BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD, FRONTEND_ORIGIN, GROQ_API_KEY, GROQ_MODEL, INBOUND_INVOICE_EMAIL, MAILGUN_WEBHOOK_SIGNING_KEY, OCR_REVIEW_THRESHOLD, OCR_SERVICE_TOKEN, OCR_SERVICE_URL, SESSION_SECRET_KEY, UPLOAD_DIR, WHATSAPP_ADMIN_TO, WHATSAPP_WEBHOOK_VERIFY_TOKEN
 from app.chat_knowledge import CHAT_SYSTEM_PROMPT
 from app.database import Base, SessionLocal, engine, get_db
 from app.models import InboundReceipt, Invoice, InvoiceEvent, InvoiceLine, Lead, Notification, User
@@ -819,6 +820,77 @@ async def inbound_email_mailgun(request: Request, background_tasks: BackgroundTa
                 if exc.status_code not in {409, 413, 415}:
                     raise
                 logger.info("Skipped inbound email attachment (%s)", exc.status_code)
+        receipt.invoice_ids = json.dumps(created_ids)
+        receipt.status = "complete" if created_ids else "ignored"
+        db.commit()
+        return {"accepted": bool(created_ids), "invoice_ids": created_ids, "skipped_attachments": len(attachments) - len(created_ids)}
+    except Exception:
+        db.rollback()
+        receipt = db.get(InboundReceipt, receipt.id)
+        if receipt:
+            receipt.status = "failed"
+            db.commit()
+        raise
+
+
+@app.post("/api/inbound/email/apps-script")
+async def inbound_email_apps_script(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """Receive Gmail attachments relayed by a private Google Apps Script."""
+    if not APPS_SCRIPT_INBOUND_TOKEN or not INBOUND_INVOICE_EMAIL:
+        raise HTTPException(503, "Apps Script email intake is not configured")
+    supplied_token = request.headers.get("X-Inbound-Token", "")
+    if not hmac.compare_digest(supplied_token, APPS_SCRIPT_INBOUND_TOKEN):
+        raise HTTPException(401, "Invalid inbound integration token")
+    try:
+        if int(request.headers.get("content-length", "0")) > 20 * 1024 * 1024:
+            raise HTTPException(413, "Email payload exceeds the 20 MB receive limit")
+    except ValueError as exc:
+        raise HTTPException(400, "Invalid content length") from exc
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(400, "Expected a JSON email payload") from exc
+    sender = parse_sender(str(payload.get("sender", ""))) if isinstance(payload, dict) else ""
+    recipient = str(payload.get("recipient", "")).strip().lower() if isinstance(payload, dict) else ""
+    message_id = str(payload.get("message_id", "")).strip() if isinstance(payload, dict) else ""
+    attachments = payload.get("attachments") if isinstance(payload, dict) else None
+    if recipient != INBOUND_INVOICE_EMAIL.lower():
+        raise HTTPException(400, "Email was not addressed to the configured invoice mailbox")
+    if not sender or not message_id or not isinstance(attachments, list):
+        raise HTTPException(422, "Email sender, message id, and attachment list are required")
+    user = db.scalar(select(User).where(User.email == sender, User.role == "lead", User.approval_status == "approved", User.is_active.is_(True)))
+    if not user:
+        logger.warning("Ignored Apps Script invoice email from an unapproved sender")
+        return {"accepted": False, "reason": "Sender is not an approved Lead account"}
+    if len(attachments) > 10:
+        raise HTTPException(413, "An email may contain at most 10 invoice attachments")
+    receipt, should_process = claim_inbound_receipt(db, "gmail_apps_script", message_id, user.id)
+    if not should_process:
+        return {"accepted": True, "duplicate_delivery": True, "invoice_ids": json.loads(receipt.invoice_ids or "[]")}
+    created_ids: list[int] = []
+    try:
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            filename = str(attachment.get("filename") or "invoice")[:200]
+            encoded = attachment.get("data_base64")
+            if not isinstance(encoded, str):
+                continue
+            try:
+                data = base64.b64decode(encoded, validate=True)
+            except (ValueError, base64.binascii.Error):
+                logger.info("Skipped malformed Apps Script email attachment")
+                continue
+            if len(data) > MAX_INVOICE_BYTES:
+                logger.info("Skipped oversized Apps Script email attachment")
+                continue
+            try:
+                invoice = await create_invoice_from_upload(data, filename, user, db, background_tasks, "email")
+                created_ids.append(invoice.id)
+            except HTTPException as exc:
+                if exc.status_code not in {409, 413, 415}:
+                    raise
+                logger.info("Skipped Apps Script email attachment (%s)", exc.status_code)
         receipt.invoice_ids = json.dumps(created_ids)
         receipt.status = "complete" if created_ids else "ignored"
         db.commit()
