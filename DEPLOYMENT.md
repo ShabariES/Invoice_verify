@@ -2,6 +2,22 @@
 
 The app stores database records in PostgreSQL and invoice files in `UPLOAD_DIR`. Render deployments must mount a persistent disk at the upload directory or uploaded files can be lost on restart/redeploy. Keep invoice files private and serve them only through authenticated API routes.
 
+## Deploy backend container images
+
+The root `Dockerfile` has two build targets: `api` and `ocr`. Build and push each image to a container registry such as GitHub Container Registry (GHCR), then create two Render services using those image URLs. The React frontend remains a Render Static Site.
+
+From the repository root, authenticate Docker to GHCR with a GitHub Personal Access Token that can publish packages, then build and push (replace `<github-user>` with the lowercase GitHub owner):
+
+```bash
+docker login ghcr.io -u <github-user>
+docker buildx build --platform linux/amd64 --target api -t ghcr.io/<github-user>/invoice-verify-api:latest --push .
+docker buildx build --platform linux/amd64 --target ocr -t ghcr.io/<github-user>/invoice-verify-ocr:latest --push .
+```
+
+Keep the packages private unless you intentionally want anyone to be able to pull the application images. For private images, configure Render with registry credentials that have read access to the GHCR packages.
+
+Create the Render API web service from the API image. Attach a persistent disk mounted at `/var/data`, and set `UPLOAD_DIR=/var/data/uploads`. Set the normal API environment variables listed below. Create the OCR service from the OCR image as a private service, set `OCR_SERVICE_TOKEN` and `PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True` on it, and set the same token plus the OCR service's internal URL on the API service. Image-pull deployments do not automatically follow code pushes: rebuild and push both images, then redeploy the Render services after changes.
+
 ## 1. Create the Render services
 
 Connect the GitHub repository to Render and create the API, private OCR web service, and static site. Keep the Neon project and Render services in nearby regions to reduce database latency. The API and OCR service need a paid always-on plan for dependable use; Paddle model initialization is CPU and memory intensive. Check current Render plans and pricing before creating services.
