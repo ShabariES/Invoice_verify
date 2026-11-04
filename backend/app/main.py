@@ -89,7 +89,10 @@ app.add_middleware(
     secret_key=SESSION_SECRET_KEY,
     session_cookie="techjays_session",
     max_age=8 * 60 * 60,
-    same_site="lax",
+    # The production UI and API are hosted on separate Render subdomains.
+    # Treat the session cookie as cross-site so credentialed fetch requests
+    # can send it from the frontend to the API. Secure is enabled below in prod.
+    same_site="none" if APP_ENV == "production" else "lax",
     https_only=APP_ENV == "production",
 )
 
