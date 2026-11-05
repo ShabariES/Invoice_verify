@@ -66,10 +66,20 @@ def send_email_notification(recipient: str, subject: str, message: str, attachme
         )
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
-                result = json.loads(response.read(64 * 1024).decode("utf-8"))
+                response_body = response.read(64 * 1024).decode("utf-8", errors="replace")
+            result = json.loads(response_body)
             if result.get("sent") is True:
                 return True
-            logger.warning("Apps Script email sender did not accept the message")
+            # Apps Script error bodies can contain provider diagnostics; keep
+            # the excerpt short and never log the request payload/token.
+            logger.warning("Apps Script email sender rejected the message (HTTP 200): %s", response_body[:300])
+            return False
+        except urllib.error.HTTPError as exc:
+            try:
+                response_excerpt = exc.read(1000).decode("utf-8", errors="replace")
+            except OSError:
+                response_excerpt = "<response body unavailable>"
+            logger.warning("Apps Script email request returned HTTP %s: %s", exc.code, response_excerpt[:300])
             return False
         except (OSError, urllib.error.URLError, ValueError) as exc:
             logger.warning("Apps Script email delivery failed (%s)", type(exc).__name__)
