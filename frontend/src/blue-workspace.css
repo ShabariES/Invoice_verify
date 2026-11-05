@@ -536,3 +536,30 @@ html:has(.layout),body:has(.layout),body:has(.layout) #root{max-width:100%;overf
   .layout .crm-metric>b{font-size:17px!important}
   .layout .review-footer>div{grid-template-columns:1fr}
 }
+
+/* Brand and palette touch-ups for the compact mobile workspace. */
+@media(max-width:680px){
+  html:has(.layout),body:has(.layout),body:has(.layout) #root{background:#f2f8fc!important;color:#10243d!important}
+  .layout{background:#f2f8fc!important}
+  .layout>main,.layout>main>.dashboard-scroll{background:#f2f8fc!important}
+  .layout>main>header .crumb{gap:9px!important}
+  .layout>main>header .crumb::before{
+    content:"T";width:31px;height:31px;flex:none;display:grid;place-items:center;border:1px solid #b8d8ed;border-radius:10px;
+    background:linear-gradient(145deg,#d9f0ff,#90bfe0);color:#052659;font:800 17px Manrope,sans-serif;box-shadow:0 3px 9px #315f9118
+  }
+  .layout .notification-page{color:#173554!important}
+  .layout .notification-page-head h1{color:#052659!important}
+  .layout .notification-page-head p{color:#617b96!important}
+  .layout .notification-page-head>button{border-color:#bcd8ec!important;background:#eaf6ff!important;color:#315f91!important}
+  .layout .notification-page-head>button:disabled{color:#7892a9!important;background:#f3f8fc!important}
+  .layout .notification-page-list{border-color:#d5e5f2!important;background:#fff!important;box-shadow:0 8px 24px #0526590a!important}
+  .layout .notification-page-item{border-bottom-color:#e4eef6!important;background:#fff!important}
+  .layout .notification-page-item.unread,.layout .notification-page-item:hover{background:#f1f8fd!important}
+  .layout .notification-page-copy b{color:#173554!important}
+  .layout .notification-page-copy small{color:#617b96!important}
+  .layout .notification-page-copy time{color:#8196a9!important}
+  .layout .notification-page-item>i{background:#eaf6ff!important;color:#315f91!important}
+  .layout .notification-page-item.unread>i{background:#d9eefb!important;color:#174f82!important}
+  .layout .notification-page-empty{color:#71879b!important}
+  .layout .notification-page-empty b{color:#173554!important}
+}
