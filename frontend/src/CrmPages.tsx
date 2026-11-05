@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { ArrowRight, ArrowUpRight, BriefcaseBusiness, CalendarClock, Check, ChevronRight, CircleDollarSign, Filter, Paperclip, Plus, Search, Send, ShieldCheck, Sparkles, Target, UsersRound, X } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, BriefcaseBusiness, CalendarClock, Check, ChevronRight, CircleDollarSign, Filter, Plus, Search, ShieldCheck, Sparkles, Target, UsersRound, X } from 'lucide-react'
 import { API, apiFetch } from './api'
 
 export type Lead = {
@@ -69,7 +69,7 @@ export function CrmHome({ leads, invoiceCount, canViewAccounting, onOpenLeads, o
   </div>
 }
 
-export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialFilter = 'all', isAdmin = false, onMessageSent }: { leads: Lead[]; onLeadsChange: (leads: Lead[]) => void; createRequest: number; query: string; initialFilter?: string; isAdmin?: boolean; onMessageSent: () => void }) {
+export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialFilter = 'all', isAdmin = false }: { leads: Lead[]; onLeadsChange: (leads: Lead[]) => void; createRequest: number; query: string; initialFilter?: string; isAdmin?: boolean }) {
   const [leadAccounts, setLeadAccounts] = useState<Array<{ id: number; name: string; company_name?: string; email: string; created_at?: string; approval_status: string }>>([])
   const [modal, setModal] = useState(false)
   const [editing, setEditing] = useState<Lead | null>(null)
@@ -80,8 +80,6 @@ export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialF
   const [error, setError] = useState('')
   const [approvalMessage, setApprovalMessage] = useState('')
   const [approvalBusy, setApprovalBusy] = useState<number | null>(null)
-  const [messageOpen, setMessageOpen] = useState(false)
-  const [messageLeadId, setMessageLeadId] = useState<number | null>(null)
   useEffect(() => {
     if (!isAdmin) return
     void apiFetch(`${API}/api/admin/lead-accounts`).then(async response => {
@@ -117,7 +115,6 @@ export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialF
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not connect to the local CRM API.') }
     finally { setSaving(false) }
   }
-  const openMessage = (lead?: Lead) => { setMessageLeadId(lead?.id ?? null); setMessageOpen(true) }
   async function decideLead(lead: Lead, action: 'approved' | 'rejected') {
     const reason = action === 'rejected' ? window.prompt('Reason for rejecting this lead (optional):') : ''
     if (reason === null) return
@@ -157,7 +154,7 @@ export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialF
   const activeCount = leads.filter(lead => !['won', 'lost'].includes(lead.status)).length
 
   return <div className="crm-page leads-page">
-    <section className="crm-page-heading"><div><span className="crm-eyebrow">{isAdmin ? 'ADMIN · CUSTOMER RELATIONSHIPS' : 'CUSTOMER RELATIONSHIPS'}</span><h1>{isAdmin ? 'Lead approvals' : 'Leads'}</h1><p>{isAdmin ? 'Review new submissions, approve qualified records, and manage the full lead pipeline.' : 'Capture prospects, understand their needs, and keep the next conversation on track.'}</p></div><div className="crm-heading-actions"><button className="crm-secondary" onClick={() => openMessage()}><Send size={15}/> Send message</button><button className="crm-primary" onClick={openNew}><Plus size={16}/> Add lead</button></div></section>
+    <section className="crm-page-heading"><div><span className="crm-eyebrow">{isAdmin ? 'ADMIN · CUSTOMER RELATIONSHIPS' : 'CUSTOMER RELATIONSHIPS'}</span><h1>{isAdmin ? 'Lead approvals' : 'Leads'}</h1><p>{isAdmin ? 'Review new submissions, approve qualified records, and manage the full lead pipeline.' : 'Capture prospects, understand their needs, and keep the next conversation on track.'}</p></div><div className="crm-heading-actions"><button className="crm-primary" onClick={openNew}><Plus size={16}/> Add lead</button></div></section>
     {approvalMessage && <p className="lead-approval-notice" role="status">{approvalMessage}</p>}
     {isAdmin && <section className="crm-panel access-requests-panel"><div className="crm-panel-head"><div><span className="crm-eyebrow">ACCOUNT SECURITY</span><h2>Lead accounts</h2><p>Review company signups here. Approved companies also appear in the Leads list.</p></div><span className="access-request-count">{leadAccounts.length} total accounts</span></div><div className="lead-account-summary"><div><small>Total lead accounts</small><b>{leadAccounts.length}</b></div><div><small>Pending approval</small><b>{leadAccounts.filter(account => account.approval_status === 'pending').length}</b></div><div><small>Approved</small><b>{leadAccounts.filter(account => account.approval_status === 'approved').length}</b></div></div>{leadAccounts.length ? <div className="access-request-list">{leadAccounts.map(account => <article className="access-request-row" key={account.id}><span className="access-request-icon"><ShieldCheck size={17}/></span><span className="access-request-person"><b>{account.company_name || account.name}</b><small>{account.name} · {account.email}{account.created_at ? ` · Joined ${new Date(account.created_at).toLocaleDateString()}` : ''}</small></span>{account.approval_status === 'pending' ? <span className="lead-approval-actions"><button type="button" disabled={approvalBusy === account.id} onClick={() => void decideAccess(account.id, 'approved')}><Check size={13}/> Approve access</button><button type="button" disabled={approvalBusy === account.id} onClick={() => void decideAccess(account.id, 'rejected')}>Reject</button></span> : <span className={`lead-approval-state ${account.approval_status}`}>{account.approval_status}</span>}</article>)}</div> : <div className="access-request-empty"><Check size={15}/> No Lead accounts yet</div>}</section>}
     {isAdmin && <button type="button" className={`admin-approval-summary ${approvalOnly ? 'selected' : ''}`} aria-pressed={approvalOnly} onClick={() => { setStatusFilter('all'); setSummaryFilter('all'); setApprovalOnly(!approvalOnly) }}><small>Awaiting admin review</small><b>{leads.filter(lead => lead.approval_status === 'pending').length}</b><span>{approvalOnly ? 'Showing leads awaiting approval.' : 'Click to review new lead submissions.'}</span></button>}
@@ -175,104 +172,6 @@ export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialF
       <form className="lead-form" onSubmit={submit}><label>Company name<input required maxLength={240} value={form.company_name} onChange={event => setField('company_name', event.target.value)} placeholder="e.g. Acme Industries" autoFocus/></label><label>Contact person<input maxLength={160} value={form.contact_name} onChange={event => setField('contact_name', event.target.value)} placeholder="Full name"/></label><label>Email address<input type="email" maxLength={254} value={form.email} onChange={event => setField('email', event.target.value)} placeholder="name@company.com"/></label><label>Phone number<input type="tel" maxLength={40} value={form.phone} onChange={event => setForm(current => ({ ...current, phone: event.target.value, whatsapp_opt_in: event.target.value === current.phone ? current.whatsapp_opt_in : false }))} placeholder="+91 98765 43210"/></label><label className="lead-whatsapp-consent"><input type="checkbox" checked={form.whatsapp_opt_in} onChange={event => setForm(current => ({ ...current, whatsapp_opt_in: event.target.checked }))}/> This contact agreed to receive WhatsApp messages.</label><label>Lead source<select value={form.source} onChange={event => setField('source', event.target.value)}>{['Website', 'Referral', 'Social media', 'Event', 'Partner', 'Outbound', 'Other'].map(source => <option key={source}>{source}</option>)}</select></label><label>Industry<input maxLength={120} value={form.industry} onChange={event => setField('industry', event.target.value)} placeholder="e.g. Manufacturing"/></label><label>Estimated opportunity (₹)<input type="number" min="0" step="1000" value={form.estimated_value} onChange={event => setField('estimated_value', event.target.value)} placeholder="0"/></label><label>Next follow-up<input type="date" value={form.next_follow_up} onChange={event => setField('next_follow_up', event.target.value)}/></label><label>Pipeline stage<select value={form.status} onChange={event => setField('status', event.target.value)}>{stages.map(stage => <option key={stage.id} value={stage.id}>{stage.label}</option>)}</select></label><label className="lead-form-wide">Notes<textarea rows={3} maxLength={4000} value={form.notes} onChange={event => setField('notes', event.target.value)} placeholder="What does this business need? Add useful context for the next conversation."/></label>
         {error && <p className="lead-form-error" role="alert">{error}</p>}<div className="lead-form-actions"><button type="button" className="crm-secondary" onClick={() => setModal(false)}>Cancel</button><button type="submit" className="crm-primary" disabled={saving}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Save lead'} <ArrowRight size={15}/></button></div>
       </form></section></div>}
-    {messageOpen && <MessageComposer leads={leads} initialLeadId={messageLeadId} onMessageSent={onMessageSent} onClose={() => setMessageOpen(false)}/>}
-  </div>
-}
-
-function MessageComposer({ leads, initialLeadId, onClose, onMessageSent }: { leads: Lead[]; initialLeadId: number | null; onClose: () => void; onMessageSent: () => void }) {
-  const [leadId, setLeadId] = useState<number | null>(initialLeadId)
-  const selectedLead = leads.find(lead => lead.id === leadId) || null
-  const [recipientEmail, setRecipientEmail] = useState(selectedLead?.email || '')
-  const [recipientPhone, setRecipientPhone] = useState(selectedLead?.phone || '')
-  const [phoneConsent, setPhoneConsent] = useState(false)
-  const [channel, setChannel] = useState<'email' | 'whatsapp'>('email')
-  const [message, setMessage] = useState('')
-  const [files, setFiles] = useState<File[]>([])
-  const [sending, setSending] = useState(false)
-  const [result, setResult] = useState('')
-  const phoneDigits = recipientPhone.replace(/\D/g, '')
-  const phoneIsValid = phoneDigits.length >= 8 && phoneDigits.length <= 15
-  const canUseWhatsApp = selectedLead ? phoneIsValid && selectedLead.whatsapp_opt_in : phoneIsValid && phoneConsent
-
-  function chooseLead(value: string) {
-    const nextId = Number(value) || null
-    const lead = leads.find(item => item.id === nextId)
-    setLeadId(nextId)
-    setRecipientEmail(lead?.email || '')
-    setRecipientPhone(lead?.phone || '')
-    setPhoneConsent(false)
-  }
-
-  function chooseFiles(fileList: FileList | null) {
-    const selected = Array.from(fileList || [])
-    const total = selected.reduce((sum, file) => sum + file.size, 0)
-    const allowed = /\.(pdf|png|jpe?g|webp)$/i
-    setFiles([])
-    if (selected.length > 10) setResult('Attach up to 10 files at a time.')
-    else if (selected.some(file => !allowed.test(file.name))) setResult('Only PDF, PNG, JPG, and WEBP files can be attached.')
-    else if (selected.some(file => file.size > 15 * 1024 * 1024)) setResult('Each attachment must be 15 MB or smaller.')
-    else if (total > 18 * 1024 * 1024) setResult('Attachments must total 18 MB or less.')
-    else { setFiles(selected); setResult('') }
-  }
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (channel === 'whatsapp') {
-      if (!phoneIsValid) {
-        setResult('Enter a WhatsApp number in international format, including the country code.')
-        return
-      }
-      if (!canUseWhatsApp) {
-        setResult(selectedLead ? 'This lead has no recorded WhatsApp consent. Update its consent before contacting them.' : 'Confirm that this recipient agreed to WhatsApp contact.')
-        return
-      }
-      if (files.length) {
-        setResult('Free WhatsApp chat links cannot attach files. Remove attachments or send this message by email.')
-        return
-      }
-      const whatsappUrl = `https://wa.me/${phoneDigits}?text=${encodeURIComponent(message.trim())}`
-      const popup = window.open(whatsappUrl, '_blank')
-      if (popup) popup.opener = null
-      setResult(popup === null ? 'Allow pop-ups for this site to open WhatsApp.' : 'WhatsApp opened with your message. Review it there and press Send.')
-      if (popup !== null) setMessage('')
-      return
-    }
-    setSending(true); setResult('')
-    try {
-      const body = new FormData()
-      body.append('channel', channel)
-      body.append('message', message)
-      body.append('recipient_email', recipientEmail)
-      if (leadId) body.append('lead_id', String(leadId))
-      files.forEach(file => body.append('attachments', file))
-      const response = await apiFetch(`${API}/api/messages/send`, { method: 'POST', body })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.detail || 'Could not send this message.')
-      if (channel === 'email') onMessageSent()
-      const filesSent = Number(data.attachment_count || 0)
-      setResult(`${data.message} Recipient: ${data.recipient}.${filesSent ? ` ${filesSent} file${filesSent === 1 ? '' : 's'} attached.` : ''} Check Spam or Promotions if the email is missing.`)
-      setMessage('')
-      setFiles([])
-    } catch (cause) {
-      setResult(cause instanceof Error ? cause.message : 'Could not connect to the messaging service.')
-    } finally { setSending(false) }
-  }
-
-  return <div className="crm-modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
-    <section className="crm-modal message-compose-modal" role="dialog" aria-modal="true" aria-labelledby="message-compose-title">
-      <div className="crm-modal-head"><div><span className="crm-eyebrow">CRM MESSAGING</span><h2 id="message-compose-title">Send a message</h2><p>Enter an email directly or choose a saved contact.</p></div><button type="button" className="crm-icon-button" onClick={onClose} aria-label="Close message form"><X size={17}/></button></div>
-      <form className="message-compose-form" onSubmit={submit}>
-        <label>Saved CRM contact <span className="message-optional">OPTIONAL</span><select value={leadId ?? ''} onChange={event => chooseLead(event.target.value)}><option value="">Choose a saved contact</option>{leads.map(lead => <option key={lead.id} value={lead.id}>{lead.company_name}{lead.contact_name ? ` · ${lead.contact_name}` : ''}</option>)}</select></label>
-        {!leads.length && <p className="message-channel-note">No saved contacts yet. You can still enter an email address below.</p>}
-        {channel === 'email' ? <label>Recipient email<input type="email" required maxLength={254} value={recipientEmail} onChange={event => setRecipientEmail(event.target.value)} placeholder="recipient@company.com"/></label> : <><label>WhatsApp number<input type="tel" required value={recipientPhone} onChange={event => { setRecipientPhone(event.target.value); setLeadId(null); setPhoneConsent(false) }} placeholder="+91 98765 43210"/><small>Include the country code, e.g. +91.</small></label>{selectedLead ? <p className="message-channel-note">{selectedLead.whatsapp_opt_in ? 'WhatsApp consent is recorded for this lead.' : 'This lead has no recorded WhatsApp consent. Update the lead record before messaging.'}</p> : <label className="message-whatsapp-consent"><input type="checkbox" checked={phoneConsent} onChange={event => setPhoneConsent(event.target.checked)}/> I confirm this recipient agreed to WhatsApp contact.</label>}</>}
-        <label>Send via<select value={channel} onChange={event => { const next = event.target.value as 'email' | 'whatsapp'; setChannel(next); if (next === 'whatsapp') setFiles([]) }}><option value="email">Email</option><option value="whatsapp">WhatsApp · free manual chat</option></select></label>
-        {channel === 'email' ? <label>Attachments <span className="message-optional">OPTIONAL</span><input className="message-file-input" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple onChange={event => { chooseFiles(event.target.files); event.target.value = '' }}/><small>PDF or image · 15 MB per file · 18 MB total</small></label> : <p className="message-channel-note">Opens WhatsApp with your message filled in. You review and send it there. File attachments require email.</p>}
-        {!!files.length && <ul className="message-file-list">{files.map((file, index) => <li key={`${file.name}-${index}`}><span><Paperclip size={13}/>{file.name}<small>{(file.size / 1024 / 1024).toFixed(2)} MB</small></span><button type="button" onClick={() => setFiles(current => current.filter((_, fileIndex) => fileIndex !== index))} aria-label={`Remove ${file.name}`}><X size={14}/></button></li>)}</ul>}
-        <label>Your message<textarea required minLength={1} maxLength={700} rows={5} value={message} onChange={event => setMessage(event.target.value)} placeholder="Write a clear message…"/><small>{message.length}/700 characters</small></label>
-        {result && <p className={`message-compose-result ${result.startsWith('SMTP accepted') || result.startsWith('The provider accepted') ? 'success' : ''}`} role="status">{result}</p>}
-        <div className="lead-form-actions"><button type="button" className="crm-secondary" onClick={onClose}>Close</button><button type="submit" className="crm-primary" disabled={sending || !message.trim() || (channel === 'whatsapp' && !canUseWhatsApp)}>{channel === 'whatsapp' ? 'Open WhatsApp' : sending ? 'Sending…' : 'Send message'} <Send size={14}/></button></div>
-      </form>
-    </section>
   </div>
 }
 
