@@ -205,6 +205,9 @@ main > header {
 .line-edit b { color: #574363; font-size: 8px; text-align: right; }
 .line-edit button { border: 0; background: none; color: #967da4; }
 .review-footer { margin-top: 12px; padding-top: 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid #eee8f3; }
+.review-head-actions { display:flex; align-items:center; gap:8px; }
+.invoice-delete-button { display:inline-flex; align-items:center; gap:5px; padding:7px 10px; border:1px solid #efc9c5; border-radius:8px; background:#fff7f6; color:#a33c34; font-size:11px; cursor:pointer; }
+.invoice-delete-button:hover { background:#ffebe9; }
 .review-footer > span { display: flex; align-items: center; gap: 4px; color: #908599; font-size: 8px; }
 .review-footer > span svg { color: #6a9d70; }
 .review-footer > div { display: flex; gap: 6px; }

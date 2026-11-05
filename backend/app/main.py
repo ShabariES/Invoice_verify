@@ -3,6 +3,7 @@ import hashlib
 import asyncio
 import hmac
 import json
+import logging
 import mimetypes
 import re
 import urllib.error
@@ -29,6 +30,8 @@ from app.notifications import channel_status, send_email_notification, send_what
 from app.schemas import ChatRequest, InvoiceEventOut, InvoiceOut, InvoiceUpdate, LeadApprovalRequest, LeadCreate, LeadMessageRequest, LeadOut, LeadUpdate, LoginRequest, NotificationOut, NotificationPreferencesRequest, RegisterRequest, UserApprovalRequest, UserOut
 from app.security import hash_password, verify_password
 from app.storage import load_invoice_source, save_invoice_source
+
+logger = logging.getLogger(__name__)
 
 Base.metadata.create_all(bind=engine)
 if "currency" not in {column["name"] for column in inspect(engine).get_columns("invoices")}:
@@ -312,6 +315,41 @@ def list_access_requests(db: Session = Depends(get_db), _admin: User = Depends(r
 @app.get("/api/admin/lead-accounts", response_model=list[UserOut])
 def list_lead_accounts(db: Session = Depends(get_db), _admin: User = Depends(require_admin)):
     return list(db.scalars(select(User).where(User.role == "lead").order_by(User.created_at.desc())).all())
+
+
+@app.delete("/api/admin/users/{user_id}", status_code=204)
+def delete_lead_account(user_id: int, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    account = db.get(User, user_id)
+    if not account or account.role != "lead":
+        raise HTTPException(404, "Lead account not found")
+    owned_invoices = list(db.scalars(select(Invoice).where(Invoice.owner_user_id == account.id)).all())
+    for invoice in owned_invoices:
+        if invoice.source_path:
+            for path in UPLOAD_DIR.glob(f"{invoice.source_path[:16]}_*"):
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("Could not remove stored source file for deleted invoice %s", invoice.id)
+        db.delete(invoice)
+    db.query(Lead).filter(Lead.owner_user_id == account.id).delete(synchronize_session=False)
+    db.query(InboundReceipt).filter(InboundReceipt.owner_user_id == account.id).delete(synchronize_session=False)
+    db.delete(account)
+    db.commit()
+
+
+@app.delete("/api/invoices/{invoice_id}", status_code=204)
+def delete_invoice(invoice_id: int, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    invoice = db.get(Invoice, invoice_id)
+    if not invoice:
+        raise HTTPException(404, "Invoice not found")
+    if invoice.source_path:
+        for path in UPLOAD_DIR.glob(f"{invoice.source_path[:16]}_*"):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("Could not remove stored source file for deleted invoice %s", invoice.id)
+    db.delete(invoice)
+    db.commit()
 
 
 @app.post("/api/admin/users/{user_id}/approval", response_model=UserOut)

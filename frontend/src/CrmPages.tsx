@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { ArrowRight, ArrowUpRight, BriefcaseBusiness, CalendarClock, Check, ChevronRight, CircleDollarSign, Filter, Plus, Search, ShieldCheck, Sparkles, Target, UsersRound, X } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, BriefcaseBusiness, CalendarClock, Check, ChevronRight, CircleDollarSign, Filter, Plus, Search, ShieldCheck, Sparkles, Target, Trash2, UsersRound, X } from 'lucide-react'
 import { API, apiFetch } from './api'
 
 export type Lead = {
   id: number
+  owner_user_id?: number | null
   company_name: string
   contact_name: string
   email: string
@@ -44,8 +45,8 @@ export function CrmHome({ leads, invoiceCount, canViewAccounting, onOpenLeads, o
 
   return <div className="crm-page crm-home">
     <section className="crm-welcome">
-      <div className="crm-welcome-copy"><span className="crm-eyebrow"><Sparkles size={13}/> ACCOUNTING CRM</span><h1>Build stronger business relationships.</h1><p>Keep customers, prospects, and financial activity connected in one workspace.</p><div className="crm-welcome-actions"><button className="crm-primary" onClick={onCreateLead}><Plus size={16}/> Add a lead</button><button className="crm-secondary" onClick={() => onOpenLeads()}>View lead pipeline <ArrowRight size={15}/></button></div></div>
-      <div className="crm-welcome-art"><div className="crm-orbit orbit-one"/><div className="crm-orbit orbit-two"/><div className="crm-art-card art-card-main"><span className="art-icon"><UsersRound size={18}/></span><div><small>Relationship pipeline</small><b>{leads.length} {leads.length === 1 ? 'lead' : 'leads'} in view</b></div><ArrowUpRight size={16}/></div><div className="crm-art-card art-card-mini"><span><CircleDollarSign size={15}/></span><div><small>Open opportunity</small><b>{money(pipelineValue)}</b></div></div><span className="crm-art-dot dot-a"/><span className="crm-art-dot dot-b"/></div>
+      <div className="crm-welcome-copy"><span className="crm-eyebrow"><Sparkles size={13}/> SALES ANALYTICS</span><h1>Your business at a glance.</h1><p>Track lead momentum, follow-ups, and invoice activity from one clear overview.</p><div className="crm-welcome-actions"><button className="crm-primary" onClick={onCreateLead}><Plus size={16}/> Add a lead</button><button className="crm-secondary" onClick={() => onOpenLeads()}>View lead pipeline <ArrowRight size={15}/></button></div></div>
+      <div className="crm-welcome-art"><div className="crm-orbit orbit-one"/><div className="crm-orbit orbit-two"/><div className="crm-art-card art-card-main"><span className="art-icon"><UsersRound size={18}/></span><div><small>Sales pipeline</small><b>{leads.length} {leads.length === 1 ? 'lead' : 'leads'} tracked</b></div><ArrowUpRight size={16}/></div><div className="crm-art-card art-card-mini"><span><CircleDollarSign size={15}/></span><div><small>Open opportunity</small><b>{money(pipelineValue)}</b></div></div><span className="crm-art-dot dot-a"/><span className="crm-art-dot dot-b"/></div>
     </section>
 
     <div className="crm-metrics">
@@ -53,6 +54,7 @@ export function CrmHome({ leads, invoiceCount, canViewAccounting, onOpenLeads, o
       <button type="button" className="crm-metric" onClick={() => onOpenLeads('qualified')} aria-label={`Show ${qualified.length} qualified opportunities`}><span className="metric-icon icon-indigo"><Target size={17}/></span><small>Qualified opportunities</small><b>{qualified.length}</b><span className="metric-note">Ready for the next step</span><span className="metric-hint">View leads <ArrowRight size={12}/></span></button>
       <button type="button" className="crm-metric" onClick={() => onOpenLeads('active')} aria-label={`Show open pipeline leads worth ${money(pipelineValue)}`}><span className="metric-icon icon-sky"><CircleDollarSign size={17}/></span><small>Open pipeline value</small><b>{money(pipelineValue)}</b><span className="metric-note">Estimated lead value</span><span className="metric-hint">View leads <ArrowRight size={12}/></span></button>
       <button type="button" className="crm-metric" onClick={() => onOpenLeads('followups')} aria-label={`Show ${followUps.length} leads with follow-ups due`}><span className="metric-icon icon-mint"><CalendarClock size={17}/></span><small>Follow-ups due</small><b>{followUps.length}</b><span className="metric-note">Keep conversations moving</span><span className="metric-hint">View leads <ArrowRight size={12}/></span></button>
+      {canViewAccounting && <button type="button" className="crm-metric invoice-metric" onClick={onOpenInvoices} aria-label={`Open ${invoiceCount} invoices`}><span className="metric-icon icon-indigo"><BriefcaseBusiness size={17}/></span><small>Invoices</small><b>{invoiceCount}</b><span className="metric-note">In your accounting workspace</span><span className="metric-hint">View invoices <ArrowRight size={12}/></span></button>}
     </div>
 
     <div className="crm-home-grid">
@@ -151,12 +153,24 @@ export function LeadsPage({ leads, onLeadsChange, createRequest, query, initialF
     } catch (cause) { setApprovalMessage(cause instanceof Error ? cause.message : 'Could not connect to the account service.') }
     finally { setApprovalBusy(null) }
   }
+  async function removeAccount(account: { id: number; name: string; email: string }) {
+    if (!window.confirm(`Permanently remove ${account.name} (${account.email}) and delete their invoices, leads, and stored invoice files? This cannot be undone.`)) return
+    setApprovalBusy(account.id); setApprovalMessage('')
+    try {
+      const response = await apiFetch(`${API}/api/admin/users/${account.id}`, { method: 'DELETE' })
+      if (!response.ok) { const data = await response.json(); throw new Error(data.detail || 'Could not remove this account.') }
+      setLeadAccounts(items => items.filter(item => item.id !== account.id))
+      onLeadsChange(leads.filter(lead => lead.owner_user_id !== account.id))
+      setApprovalMessage(`${account.email} and its workspace data were removed.`)
+    } catch (cause) { setApprovalMessage(cause instanceof Error ? cause.message : 'Could not remove account.') }
+    finally { setApprovalBusy(null) }
+  }
   const activeCount = leads.filter(lead => !['won', 'lost'].includes(lead.status)).length
 
   return <div className="crm-page leads-page">
     <section className="crm-page-heading"><div><span className="crm-eyebrow">{isAdmin ? 'ADMIN · CUSTOMER RELATIONSHIPS' : 'CUSTOMER RELATIONSHIPS'}</span><h1>{isAdmin ? 'Lead approvals' : 'Leads'}</h1><p>{isAdmin ? 'Review new submissions, approve qualified records, and manage the full lead pipeline.' : 'Capture prospects, understand their needs, and keep the next conversation on track.'}</p></div><div className="crm-heading-actions"><button className="crm-primary" onClick={openNew}><Plus size={16}/> Add lead</button></div></section>
     {approvalMessage && <p className="lead-approval-notice" role="status">{approvalMessage}</p>}
-    {isAdmin && <section className="crm-panel access-requests-panel"><div className="crm-panel-head"><div><span className="crm-eyebrow">ACCOUNT SECURITY</span><h2>Lead accounts</h2><p>Review company signups here. Approved companies also appear in the Leads list.</p></div><span className="access-request-count">{leadAccounts.length} total accounts</span></div><div className="lead-account-summary"><div><small>Total lead accounts</small><b>{leadAccounts.length}</b></div><div><small>Pending approval</small><b>{leadAccounts.filter(account => account.approval_status === 'pending').length}</b></div><div><small>Approved</small><b>{leadAccounts.filter(account => account.approval_status === 'approved').length}</b></div></div>{leadAccounts.length ? <div className="access-request-list">{leadAccounts.map(account => <article className="access-request-row" key={account.id}><span className="access-request-icon"><ShieldCheck size={17}/></span><span className="access-request-person"><b>{account.company_name || account.name}</b><small>{account.name} · {account.email}{account.created_at ? ` · Joined ${new Date(account.created_at).toLocaleDateString()}` : ''}</small></span>{account.approval_status === 'pending' ? <span className="lead-approval-actions"><button type="button" disabled={approvalBusy === account.id} onClick={() => void decideAccess(account.id, 'approved')}><Check size={13}/> Approve access</button><button type="button" disabled={approvalBusy === account.id} onClick={() => void decideAccess(account.id, 'rejected')}>Reject</button></span> : <span className={`lead-approval-state ${account.approval_status}`}>{account.approval_status}</span>}</article>)}</div> : <div className="access-request-empty"><Check size={15}/> No Lead accounts yet</div>}</section>}
+    {isAdmin && <section className="crm-panel access-requests-panel"><div className="crm-panel-head"><div><span className="crm-eyebrow">ACCOUNT SECURITY</span><h2>Lead accounts</h2><p>Review company signups here. Approved companies also appear in the Leads list.</p></div><span className="access-request-count">{leadAccounts.length} total accounts</span></div><div className="lead-account-summary"><div><small>Total Lead accounts</small><b>{leadAccounts.length}</b></div><div><small>Pending approval</small><b>{leadAccounts.filter(account => account.approval_status === 'pending').length}</b></div><div><small>Approved</small><b>{leadAccounts.filter(account => account.approval_status === 'approved').length}</b></div></div>{leadAccounts.length ? <div className="access-request-list">{leadAccounts.map(account => <article className="access-request-row" key={account.id}><span className="access-request-icon"><ShieldCheck size={17}/></span><span className="access-request-person"><b>{account.company_name || account.name}</b><small>{account.name} · {account.email}{account.created_at ? ` · Joined ${new Date(account.created_at).toLocaleDateString()}` : ''}</small></span><span className="lead-approval-actions">{account.approval_status === 'pending' && <><button type="button" disabled={approvalBusy === account.id} onClick={() => void decideAccess(account.id, 'approved')}><Check size={13}/> Approve access</button><button type="button" disabled={approvalBusy === account.id} onClick={() => void decideAccess(account.id, 'rejected')}>Reject</button></>}<button type="button" disabled={approvalBusy === account.id} onClick={() => void removeAccount(account)}><Trash2 size={13}/> Remove</button></span></article>)}</div> : <div className="access-request-empty"><Check size={15}/> No Lead accounts yet</div>}</section>}
     {isAdmin && <button type="button" className={`admin-approval-summary ${approvalOnly ? 'selected' : ''}`} aria-pressed={approvalOnly} onClick={() => { setStatusFilter('all'); setSummaryFilter('all'); setApprovalOnly(!approvalOnly) }}><small>Awaiting admin review</small><b>{leads.filter(lead => lead.approval_status === 'pending').length}</b><span>{approvalOnly ? 'Showing leads awaiting approval.' : 'Click to review new lead submissions.'}</span></button>}
     <div className="lead-summary" aria-label="Lead summaries">
       <button type="button" className={summaryFilter === 'all' ? 'selected' : ''} aria-pressed={summaryFilter === 'all'} onClick={() => chooseSummary('all')}><small>Total leads</small><b>{leads.length}</b><span>Show every lead <ArrowRight size={12}/></span></button>
