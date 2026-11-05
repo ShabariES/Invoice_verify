@@ -543,10 +543,12 @@ html:has(.layout),body:has(.layout),body:has(.layout) #root{max-width:100%;overf
   .layout{background:#f2f8fc!important}
   .layout>main,.layout>main>.dashboard-scroll{background:#f2f8fc!important}
   .layout>main>header .crumb{gap:9px!important}
-  .layout>main>header .crumb::before{
-    content:"T";width:31px;height:31px;flex:none;display:grid;place-items:center;border:1px solid #b8d8ed;border-radius:10px;
-    background:linear-gradient(145deg,#d9f0ff,#90bfe0);color:#052659;font:800 17px Manrope,sans-serif;box-shadow:0 3px 9px #315f9118
-  }
+  .layout .logo>.logo-mark{display:grid;place-items:center}
+  .layout .logo>.logo-mark svg{width:25px;height:25px;display:block;color:#052659}
+  .layout>main>header .crumb .workspace-brand-mark{width:34px;height:34px;flex:none;display:grid!important;place-items:center;border:1px solid #b8d8ed;border-radius:11px;background:linear-gradient(145deg,#d9f0ff,#90bfe0);box-shadow:0 3px 9px #315f9118}
+  .layout>main>header .crumb .workspace-brand-mark svg{width:24px;height:24px;display:block;color:#052659}
+  .layout>main>header .crumb .workspace-brand-name{display:block!important;color:#173554;font:800 10px Manrope,sans-serif;letter-spacing:1px;white-space:nowrap}
+  .layout>main>header .crumb .breadcrumb-workspace,.layout>main>header .crumb>b{display:none!important}
   .layout .notification-page{color:#173554!important}
   .layout .notification-page-head h1{color:#052659!important}
   .layout .notification-page-head p{color:#617b96!important}
