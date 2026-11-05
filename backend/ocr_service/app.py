@@ -310,6 +310,15 @@ def groq_extract(data: bytes, suffix: str) -> tuple[str, float, dict[str, dict[s
                 page_fields[field] = {"value": value[:240], "confidence": round(confidence, 3)}
 
     recognized_text = "\n\n".join(page_texts)
+    # The vision model sometimes transcribes a GSTIN in its text output but
+    # omits it from structured fields (or supplies a malformed candidate that
+    # strict validation rejects). Recover only this explicitly labeled field;
+    # the parser marks imperfect candidates low-confidence for human review.
+    if "supplier_gstin" not in page_fields and recognized_text:
+        text_confidence = mean([field["confidence"] for field in page_fields.values()]) if page_fields else 0.5
+        text_fields = extract_invoice_fields(recognized_text, text_confidence)
+        if "supplier_gstin" in text_fields:
+            page_fields["supplier_gstin"] = text_fields["supplier_gstin"]
     normalize_percentage_tax(page_fields, recognized_text)
     return recognized_text, mean([f["confidence"] for f in page_fields.values()]) if page_fields else 0.0, page_fields
 
@@ -508,9 +517,18 @@ def extract_invoice_fields(raw_text: str, confidence: float) -> dict[str, dict[s
             elif field == "supplier_gstin":
                 # A GSTIN has a strict 15-character structure. OCR frequently
                 # turns handwritten IDs into plausible-looking fragments; do
-                # not place those fragments in the accounting form as facts.
-                gstin = re.search(r"\b\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]\b", value.upper())
-                value = gstin.group(0) if gstin else ""
+                # not mark those fragments as high-confidence facts. Preserve
+                # a near-length candidate from an explicitly labeled GSTIN so
+                # the reviewer can verify/correct it instead of losing it.
+                compact = re.sub(r"[^A-Z0-9]", "", value.upper())
+                gstin = re.fullmatch(r"\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]", compact)
+                if gstin:
+                    value = gstin.group(0)
+                elif 14 <= len(compact) <= 16 and compact[:2].isdigit() and "Z" in compact[11:]:
+                    value = compact
+                    field_confidence = min(confidence, 0.55)
+                else:
+                    value = ""
             elif field == "currency":
                 currency = re.search(r"\b(INR|USD|EUR|GBP|AUD|CAD|AED|SGD)\b", value.upper())
                 value = currency.group(1) if currency else ""
