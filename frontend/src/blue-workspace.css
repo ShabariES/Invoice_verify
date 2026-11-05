@@ -89,6 +89,19 @@ body:has(.layout){min-width:360px!important;background:var(--workspace-bg)!impor
 @media(max-width:900px){.layout .crm-home .crm-welcome-copy{max-width:100%}.layout .crm-home .crm-welcome-art{opacity:.22!important;right:-5%!important}.layout .crm-home .crm-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important}.layout .crm-home .crm-home-grid{grid-template-columns:1fr!important}.layout .crm-home .pipeline-stage-flow{grid-template-columns:repeat(3,minmax(0,1fr))!important}.layout .crm-home .pipeline-flow-stage::after{display:none!important}}
 @media(max-width:620px){.layout .crm-home .crm-welcome-art{display:none!important}.layout .crm-home .crm-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important}.layout .crm-home .crm-metric{min-width:0;min-height:112px!important}.layout .crm-home .pipeline-stage-flow{grid-template-columns:1fr!important}.layout .crm-home .pipeline-flow-stage{min-height:0!important}}
 
+/* Keep notification controls and row status inside the visible workspace width. */
+.layout .notification-page{width:min(100%,1100px);max-width:100%;min-width:0;margin:28px auto;padding:0 clamp(14px,2.4vw,28px) 36px}
+.layout .notification-page-head{min-width:0;flex-wrap:wrap}
+.layout .notification-page-head>div{min-width:0}
+.layout .notification-page-item{width:100%;min-width:0;display:grid;grid-template-columns:38px minmax(0,1fr) auto;align-items:start;gap:12px}
+.layout .notification-page-copy{min-width:0}
+.layout .notification-page-copy>span{min-width:0;flex-wrap:wrap;align-items:baseline}
+.layout .notification-page-copy b,.layout .notification-page-copy small{min-width:0;overflow-wrap:anywhere}
+.layout .notification-page-copy time{white-space:normal;text-align:right}
+.layout .notification-page-item>i{white-space:nowrap}
+.layout .review-footer .approve:focus-visible{outline:2px solid #7da0ca!important;outline-offset:3px!important;box-shadow:none!important}
+@media(max-width:620px){.layout .notification-page{margin:18px auto;padding:0 14px 24px}.layout .notification-page-item{grid-template-columns:34px minmax(0,1fr);gap:9px;padding:13px 11px}.layout .notification-page-item>i{grid-column:2;justify-self:start}.layout .notification-page-copy>span{display:grid;justify-content:start;gap:3px}.layout .notification-page-copy time{text-align:left}}
+
 .layout .admin-approval-summary{border-color:#c9dff0!important;background:linear-gradient(110deg,#f4faff,#fff)!important;color:#173554!important}
 .layout .admin-approval-summary:hover,.layout .admin-approval-summary.selected{border-color:#5483b3!important;background:#eaf6ff!important;box-shadow:inset 3px 0 #5483b3,0 6px 18px #0526590c!important}
 .layout .admin-approval-summary small,.layout .admin-approval-summary span{color:#627c95!important}
