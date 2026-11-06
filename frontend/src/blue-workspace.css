@@ -395,6 +395,7 @@ html:has(.layout),body:has(.layout),body:has(.layout) #root{max-width:100%;overf
 @media(max-width:620px){.layout .invoice-list-panel-head{min-height:76px;padding:14px}.layout .invoice-list-title{font-size:17px}.layout .invoice-list-panel-head .small-upload{font-size:0;min-width:36px;justify-content:center;padding:0}.layout .invoice-list-panel-head .small-upload svg{width:16px}.layout .invoice-wide-row{min-height:74px;grid-template-columns:32px minmax(0,1fr) auto 14px;gap:9px;padding:10px 12px}.layout .invoice-wide-row .file-icon{width:30px;height:30px}.layout .invoice-wide-status{display:none}.layout .invoice-wide-amount{font-size:10px}.layout .invoice-wide-main b{font-size:10px}.layout .invoice-wide-main small{font-size:8px}}
 
 /* Mobile workspace: bottom navigation, compact header, touch-sized controls. */
+.layout>main>header .mobile-wordmark{display:none}
 @media(max-width:680px){
   html,body,#root{min-width:320px!important;width:100%;height:100%;overflow:hidden}
   body:has(.layout){min-width:320px!important}
@@ -414,13 +415,16 @@ html:has(.layout),body:has(.layout),body:has(.layout) #root{max-width:100%;overf
   .layout>.side .nav svg{width:18px!important;height:18px!important;flex:none;color:inherit!important}
   .layout>.side .nav.active{border-color:#cde3f2!important;background:#eaf6ff!important;color:#174f82!important;box-shadow:inset 0 -2px #5483b3!important}
   .layout>.side .nav b{position:absolute!important;top:1px!important;right:calc(50% - 22px)!important;min-width:16px!important;height:16px!important;padding:0 4px!important;border:1px solid #fff!important;background:#315f91!important;color:#fff!important;font-size:8px!important;line-height:1}
-  .layout>main{width:100%!important;height:100dvh!important;min-width:0!important;margin:0!important;padding:0!important;overflow:hidden}
+  .layout>main{display:flex!important;flex-direction:column!important;width:100%!important;height:100dvh!important;min-height:0!important;min-width:0!important;margin:0!important;padding:0!important;overflow:hidden}
   .layout>main>header{
     position:sticky!important;top:0;z-index:25;display:grid!important;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"crumb actions" "search search";
     align-items:center;gap:9px 10px;width:100%;height:auto!important;min-height:96px;padding:10px 14px!important;border-bottom:1px solid #d9e9f6!important;background:#fffffffa!important;box-shadow:0 4px 16px #0526590a!important
   }
-  .layout>main>header .crumb{grid-area:crumb;min-width:0;gap:0}
-  .layout>main>header .crumb span,.layout>main>header .crumb>svg{display:none!important}
+  .layout>main>header .mobile-wordmark{grid-area:crumb;min-width:0;display:flex!important;align-items:center;gap:8px;color:#173554}
+  .layout>main>header .mobile-wordmark>span{width:34px;height:34px;flex:none;display:grid;place-items:center;border:1px solid #b8d8ed;border-radius:11px;background:linear-gradient(145deg,#d9f0ff,#90bfe0);box-shadow:0 3px 9px #315f9118}
+  .layout>main>header .mobile-wordmark svg{width:24px;height:24px;display:block;color:#052659}
+  .layout>main>header .mobile-wordmark>b{overflow:hidden;color:#173554;font:800 10px Manrope,sans-serif;letter-spacing:.9px;text-overflow:ellipsis;white-space:nowrap}
+  .layout>main>header .crumb{display:none!important}
   .layout>main>header .crumb b{overflow:hidden;color:#173554!important;font-size:14px;text-overflow:ellipsis;white-space:nowrap}
   .layout>main>header .top-search{grid-area:search;width:100%!important;min-width:0;height:38px!important;padding:0 11px!important;border:1px solid #d5e5f2!important;border-radius:11px!important;background:#f5f9fc!important}
   .layout>main>header .top-search svg{width:15px;flex:none}
@@ -432,7 +436,7 @@ html:has(.layout),body:has(.layout),body:has(.layout) #root{max-width:100%;overf
   .layout .signout-button{width:36px;min-width:36px;height:36px;justify-content:center;gap:0;padding:0!important;border:1px solid #d5e5f2!important;border-radius:11px!important;background:#fff!important;color:#315f91!important;font-size:0!important}
   .layout .signout-button svg{width:15px;height:15px}
   .layout .notification-popover{position:fixed!important;top:102px!important;right:10px!important;left:auto!important;width:min(410px,calc(100vw - 20px))!important;max-height:calc(100dvh - 190px);overflow:auto}
-  .layout .dashboard-scroll{min-width:0;width:100%;padding:0 0 calc(76px + env(safe-area-inset-bottom));scrollbar-gutter:auto}
+  .layout .dashboard-scroll{flex:1 1 0%!important;height:0!important;min-height:0!important;min-width:0;width:100%;overflow-x:hidden!important;overflow-y:auto!important;padding:0 0 calc(76px + env(safe-area-inset-bottom));-webkit-overflow-scrolling:touch;overscroll-behavior-y:contain;touch-action:pan-y;scrollbar-gutter:auto}
   .layout .crm-page{width:100%;padding:17px 14px 24px!important}
   .layout .crm-page-heading{align-items:flex-start!important;flex-direction:column;gap:14px;padding:8px 0 16px!important}
   .layout .crm-page-heading h1,.layout .heading h1{font-size:25px!important}
@@ -565,3 +569,6 @@ html:has(.layout),body:has(.layout),body:has(.layout) #root{max-width:100%;overf
   .layout .notification-page-empty{color:#71879b!important}
   .layout .notification-page-empty b{color:#173554!important}
 }
+
+/* Keep the public landing page in the document scroll flow on touch screens. */
+.reference-landing{overflow:visible!important}
