@@ -8,6 +8,7 @@
 **/.env.*
 !**/.env.example
 frontend/node_modules
+**/node_modules
 frontend/dist
 backend/uploads
 backend/invoices.db
