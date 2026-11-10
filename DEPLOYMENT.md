@@ -69,6 +69,7 @@ Set these environment variables on the API service:
 | `WHATSAPP_GRAPH_API_VERSION` | Graph API version supported by your Meta app |
 | `WHATSAPP_APP_SECRET` | Meta app secret used to verify incoming webhook signatures |
 | `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | Random token used when Meta verifies the webhook URL |
+| `OPENWA_WEBHOOK_SECRET` | Shared HMAC secret for OpenWA webhook signing; store as a secret |
 | `WHATSAPP_INBOUND_NUMBER` | Human-readable business number shown to workspace users |
 | `WHATSAPP_TEMPLATE_NAME` | Approved Utility template with one body placeholder (`{{1}}`) |
 | `WHATSAPP_TEMPLATE_LANGUAGE` | Template language code, e.g. `en_US` |
@@ -87,7 +88,17 @@ The app records notifications in the database and shows them from the bell in th
 4. In **Leads**, click **Send message**. Enter any recipient email directly or select a saved CRM contact. Email supports PDF/image attachments up to 15 MB each and 18 MB total. WhatsApp requires a saved contact, a number, recorded consent, and the configured approved template; file attachments are email-only. The app reports provider acceptance, not final inbox delivery or read status.
 5. For invoice intake by email, configure a Mailgun receiving domain and its MX records. Set `INBOUND_INVOICE_EMAIL` to the exact receiving address and `MAILGUN_WEBHOOK_SIGNING_KEY` to the account HTTP webhook signing key. In Mailgun Routes, match that exact recipient and forward to `https://<api-service>.onrender.com/api/inbound/email/mailgun`. Use the multipart route-forward action so attachments and the signed timestamp/token/signature fields reach the app. Publish SPF and DKIM for Lead sender domains; the API accepts mail only when Mailgun verifies SPF or aligned DKIM and the envelope sender exactly matches an approved Lead account email. Each PDF or image must be 15 MB or less.
 6. For invoice intake by WhatsApp, configure the WhatsApp Business Cloud API webhook callback as `https://<api-service>.onrender.com/api/inbound/whatsapp`, set the verify token to `WHATSAPP_WEBHOOK_VERIFY_TOKEN`, subscribe to the `messages` field, and set `WHATSAPP_APP_SECRET` to the Meta app secret. Set the existing Graph API access token and phone-number ID so the API can retrieve media. Set `WHATSAPP_INBOUND_NUMBER` for display. Approved Leads must save their WhatsApp number under the workspace notification preferences; invoice attachments from that exact number are stored in that Lead account. PDF, PNG, JPG, and WEBP files up to 15 MB are accepted.
-7. Sign in as Admin and open the notification bell. It shows inbound/outbound channel configuration. Test with a registered approved Lead email and WhatsApp number, and verify the draft appears only in that account while Admin can review it. Inbound webhook retries are deduplicated by provider message ID and exact file content.
+7. As an alternative inbound provider, run OpenWA separately and set `OPENWA_WEBHOOK_SECRET` in the Render API to the webhook signing secret you will use in OpenWA. In OpenWA, create a webhook for event `message.received` pointing to `https://<api-service>.onrender.com/api/inbound/whatsapp/openwa`. For example:
+
+   ```bash
+   curl -X POST "https://<openwa-host>/api/sessions/<session-id>/webhooks" \
+     -H "X-API-Key: <openwa-api-key>" \
+     -H "Content-Type: application/json" \
+     -d '{"url":"https://<api-service>.onrender.com/api/inbound/whatsapp/openwa","events":["message.received"],"secret":"<same-secret-as-OPENWA_WEBHOOK_SECRET>"}'
+   ```
+
+   OpenWA's default webhook media limit is 1 MiB, so larger invoice attachments can arrive without their bytes. On the OpenWA service set `WEBHOOK_MEDIA_INLINE_MAX_BYTES=15728640`, `BODY_SIZE_LIMIT=25mb`, and `RESOLVE_LID_TO_PHONE=true`, then restart it. The API accepts up to 22 MiB of webhook JSON, enough for a base64 encoded 15 MiB invoice. The OpenWA linked session also needs persistent storage so it survives restarts. Use a dedicated number: OpenWA documents that it is an unofficial WhatsApp Web gateway and carries account-restriction risk. Only direct PDF/image messages from active, approved Leads whose saved phone number matches are accepted.
+8. Sign in as Admin and open the notification bell. It shows inbound/outbound channel configuration. Test with a registered approved Lead email and WhatsApp number, and verify the draft appears only in that account while Admin can review it. Inbound webhook retries are deduplicated by provider message ID and exact file content.
 
 In-app notifications are available for signed-in users even when external providers are not configured. Provider delivery runs after the app saves its notification. Configure provider secrets only on the backend.
 

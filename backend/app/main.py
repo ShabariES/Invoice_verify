@@ -21,11 +21,11 @@ from sqlalchemy import func, inspect, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.config import ADMIN_WHATSAPP_PHONE, APP_ENV, APPS_SCRIPT_INBOUND_TOKEN, BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD, FRONTEND_ORIGIN, GROQ_API_KEY, GROQ_MODEL, INBOUND_INVOICE_EMAIL, MAILGUN_WEBHOOK_SIGNING_KEY, OCR_REVIEW_THRESHOLD, OCR_SERVICE_TOKEN, OCR_SERVICE_URL, SESSION_SECRET_KEY, UPLOAD_DIR, WHATSAPP_ADMIN_TO, WHATSAPP_WEBHOOK_VERIFY_TOKEN
+from app.config import ADMIN_WHATSAPP_PHONE, APP_ENV, APPS_SCRIPT_INBOUND_TOKEN, BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD, FRONTEND_ORIGIN, GROQ_API_KEY, GROQ_MODEL, INBOUND_INVOICE_EMAIL, MAILGUN_WEBHOOK_SIGNING_KEY, OCR_REVIEW_THRESHOLD, OCR_SERVICE_TOKEN, OCR_SERVICE_URL, OPENWA_WEBHOOK_SECRET, SESSION_SECRET_KEY, UPLOAD_DIR, WHATSAPP_ADMIN_TO, WHATSAPP_WEBHOOK_VERIFY_TOKEN
 from app.chat_knowledge import CHAT_SYSTEM_PROMPT
 from app.database import Base, SessionLocal, engine, get_db
 from app.models import InboundReceipt, Invoice, InvoiceEvent, InvoiceLine, Lead, Notification, User
-from app.inbound import ALLOWED_EXTENSIONS, MAX_INVOICE_BYTES, authenticated_mail_headers, download_whatsapp_media, normalize_phone, parse_sender, valid_invoice_attachment, verify_mailgun_signature, verify_whatsapp_signature
+from app.inbound import ALLOWED_EXTENSIONS, MAX_INVOICE_BYTES, authenticated_mail_headers, download_whatsapp_media, normalize_phone, parse_sender, valid_invoice_attachment, verify_mailgun_signature, verify_whatsapp_signature, verify_openwa_signature
 from app.notifications import channel_status, send_email_notification, send_whatsapp_notification
 from app.schemas import ChatRequest, InvoiceEventOut, InvoiceOut, InvoiceUpdate, LeadApprovalRequest, LeadCreate, LeadMessageRequest, LeadOut, LeadUpdate, LoginRequest, NotificationOut, NotificationPreferencesRequest, RegisterRequest, UserApprovalRequest, UserOut
 from app.security import hash_password, verify_password
@@ -1004,6 +1004,123 @@ async def inbound_whatsapp(request: Request, background_tasks: BackgroundTasks, 
                         raise
                     logger.info("Skipped or failed WhatsApp invoice attachment (%s)", type(exc).__name__)
     return {"received": True, "messages": processed}
+
+
+@app.post("/api/inbound/whatsapp/openwa")
+async def inbound_whatsapp_openwa(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """Accept signed OpenWA message.received webhooks containing invoice media."""
+    if not OPENWA_WEBHOOK_SECRET:
+        raise HTTPException(503, "OpenWA inbound is not configured")
+    try:
+        content_length = int(request.headers.get("content-length", "0"))
+    except ValueError as exc:
+        raise HTTPException(400, "Invalid content length") from exc
+    max_payload_bytes = 22 * 1024 * 1024
+    if content_length > max_payload_bytes:
+        raise HTTPException(413, "OpenWA webhook payload exceeds the 22 MB receive limit")
+    body_buffer = bytearray()
+    async for chunk in request.stream():
+        body_buffer.extend(chunk)
+        if len(body_buffer) > max_payload_bytes:
+            raise HTTPException(413, "OpenWA webhook payload exceeds the 22 MB receive limit")
+    body = bytes(body_buffer)
+    if not verify_openwa_signature(body, request.headers.get("X-OpenWA-Signature")):
+        raise HTTPException(401, "Invalid OpenWA webhook signature")
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(400, "Invalid OpenWA webhook payload") from exc
+    if not isinstance(payload, dict) or payload.get("event") != "message.received":
+        return {"received": True, "accepted": False, "reason": "Unsupported webhook event"}
+    message = payload.get("data")
+    if not isinstance(message, dict):
+        raise HTTPException(400, "OpenWA message data is missing")
+    if message.get("fromMe") is True or message.get("isGroup") is True or message.get("kind") == "group":
+        return {"received": True, "accepted": False, "reason": "Only direct inbound messages are accepted"}
+    media = message.get("media")
+    if not isinstance(media, dict):
+        return {"received": True, "accepted": False, "reason": "Message has no invoice attachment"}
+
+    sender_id = str(message.get("from") or "").strip()
+    sender_domain = sender_id.rsplit("@", 1)[1].lower() if "@" in sender_id else ""
+    if sender_domain in {"c.us", "s.whatsapp.net"}:
+        sender_phone = normalize_phone(sender_id.split("@", 1)[0])
+    elif sender_domain == "lid":
+        # OpenWA can resolve privacy IDs to a phone when RESOLVE_LID_TO_PHONE=true.
+        sender_phone = normalize_phone(message.get("senderPhone"))
+    elif sender_domain:
+        return {"received": True, "accepted": False, "reason": "Sender is not a direct phone-number chat"}
+    else:
+        sender_phone = normalize_phone(sender_id)
+    leads = db.scalars(select(User).where(User.role == "lead", User.approval_status == "approved", User.is_active.is_(True))).all()
+    owner = next((candidate for candidate in leads if normalize_phone(candidate.phone) == sender_phone and 8 <= len(sender_phone) <= 15), None)
+    if not owner:
+        logger.warning("Ignored OpenWA invoice from an unapproved or unmatched number")
+        return {"received": True, "accepted": False, "reason": "Sender is not an active approved lead with a matching phone number"}
+
+    external_id = str(payload.get("idempotencyKey") or message.get("id") or "").strip()
+    if not external_id:
+        raise HTTPException(422, "OpenWA message identifier is missing")
+    receipt, should_process = claim_inbound_receipt(db, "openwa", external_id, owner.id)
+    if not should_process:
+        return {"received": True, "accepted": True, "duplicate_delivery": True, "invoice_ids": json.loads(receipt.invoice_ids or "[]")}
+
+    encoded = media.get("data")
+    if media.get("omitted") is True or not encoded:
+        receipt.status = "ignored"
+        receipt.invoice_ids = "[]"
+        db.commit()
+        logger.warning("OpenWA omitted inline media; increase its webhook media and payload size limits")
+        return {"received": True, "accepted": False, "reason": "OpenWA omitted the media; increase its inline media limit"}
+
+    try:
+        if isinstance(encoded, str):
+            encoded_data = encoded.partition(",")[2] if encoded.startswith("data:") else encoded
+            data = base64.b64decode(encoded_data, validate=True)
+        elif isinstance(encoded, dict) and encoded.get("type") == "Buffer" and isinstance(encoded.get("data"), list):
+            data = bytes(encoded["data"])
+        elif isinstance(encoded, list):
+            data = bytes(encoded)
+        else:
+            raise ValueError("Unsupported media encoding")
+        if not data or len(data) > MAX_INVOICE_BYTES:
+            raise HTTPException(413, "WhatsApp invoice files must be 15 MB or smaller")
+        filename = str(media.get("filename") or "").strip()
+        mimetype = str(media.get("mimetype") or "").split(";", 1)[0].strip().lower()
+        if not filename:
+            extension = {"application/pdf": ".pdf", "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}.get(mimetype, "")
+            filename = f"whatsapp-{str(message.get('id') or external_id)[-18:]}{extension}"
+        elif not Path(filename).suffix:
+            filename += {"application/pdf": ".pdf", "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}.get(mimetype, "")
+        invoice = await create_invoice_from_upload(data, filename, owner, db, background_tasks, "WhatsApp via OpenWA")
+        receipt = db.get(InboundReceipt, receipt.id)
+        receipt.invoice_ids = json.dumps([invoice.id])
+        receipt.status = "complete"
+        db.commit()
+        return {"received": True, "accepted": True, "invoice_ids": [invoice.id]}
+    except (ValueError, TypeError, base64.binascii.Error) as exc:
+        db.rollback()
+        receipt = db.get(InboundReceipt, receipt.id)
+        if receipt:
+            receipt.status = "ignored"
+            db.commit()
+        logger.info("Skipped malformed OpenWA invoice media (%s)", type(exc).__name__)
+        return {"received": True, "accepted": False, "reason": "Invoice attachment encoding was invalid"}
+    except HTTPException as exc:
+        receipt = db.get(InboundReceipt, receipt.id)
+        if receipt:
+            receipt.status = "ignored" if exc.status_code in {409, 413, 415} else "failed"
+            db.commit()
+        if exc.status_code in {409, 413, 415}:
+            return {"received": True, "accepted": False, "reason": exc.detail}
+        raise
+    except Exception:
+        db.rollback()
+        receipt = db.get(InboundReceipt, receipt.id)
+        if receipt:
+            receipt.status = "failed"
+            db.commit()
+        raise
 
 
 @app.patch("/api/invoices/{invoice_id}", response_model=InvoiceOut)

@@ -14,6 +14,7 @@ from app.config import (
     WHATSAPP_APP_SECRET,
     WHATSAPP_GRAPH_API_VERSION,
     WHATSAPP_PHONE_NUMBER_ID,
+    OPENWA_WEBHOOK_SECRET,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,13 @@ def verify_whatsapp_signature(body: bytes, signature: str | None) -> bool:
     if not WHATSAPP_APP_SECRET or not signature or not signature.startswith("sha256="):
         return False
     expected = "sha256=" + hmac.new(WHATSAPP_APP_SECRET.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
+def verify_openwa_signature(body: bytes, signature: str | None) -> bool:
+    if not OPENWA_WEBHOOK_SECRET or not signature or not signature.startswith("sha256="):
+        return False
+    expected = "sha256=" + hmac.new(OPENWA_WEBHOOK_SECRET.encode("utf-8"), body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature)
 
 
